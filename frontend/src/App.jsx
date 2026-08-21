@@ -5,6 +5,7 @@ import CodeViewer from './components/CodeViewer';
 import HistoryPanel from './components/HistoryPanel';
 import DiffModal from './components/DiffModal';
 import FileHistoryModal from './components/FileHistoryModal';
+import EvidenceModal from './components/EvidenceModal';
 
 function App() {
   const [backendStatus, setBackendStatus] = useState('checking'); // 'checking' | 'connected' | 'offline'
@@ -35,6 +36,9 @@ function App() {
 
   const [fileHistoryData, setFileHistoryData] = useState(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  const [evidenceData, setEvidenceData] = useState(null);
+  const [isLoadingEvidence, setIsLoadingEvidence] = useState(false);
 
   const checkHealth = async () => {
     try {
@@ -245,6 +249,30 @@ function App() {
     }
   };
 
+  const handleViewEvidencePackage = async (filePath, lineNum) => {
+    const targetFile = filePath || selectedFilePath;
+    const targetLine = lineNum || selectedLine;
+    if (!targetFile || !targetLine || !repoData) return;
+
+    setIsLoadingEvidence(true);
+    try {
+      const response = await fetch(
+        `http://localhost:5000/api/repository/${repoData.id}/evidence?filePath=${encodeURIComponent(targetFile)}&line=${targetLine}`
+      );
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        alert(data.error || 'Failed to assemble evidence package.');
+      } else {
+        setEvidenceData(data);
+      }
+    } catch (err) {
+      alert('Error building evidence package.');
+    } finally {
+      setIsLoadingEvidence(false);
+    }
+  };
+
   return (
     <div className="app-container">
       <header className="navbar">
@@ -373,9 +401,11 @@ function App() {
                 blameData={blameData}
                 onViewDiff={handleViewDiff}
                 onViewFileHistory={handleViewFileHistory}
+                onViewEvidence={handleViewEvidencePackage}
                 onClose={() => setBlameData(null)}
                 isLoadingDiff={isLoadingDiff}
                 isLoadingHistory={isLoadingHistory}
+                isLoadingEvidence={isLoadingEvidence}
               />
             )}
           </div>
@@ -392,6 +422,14 @@ function App() {
               historyData={fileHistoryData}
               onViewDiff={handleViewDiff}
               onClose={() => setFileHistoryData(null)}
+            />
+          )}
+
+          {evidenceData && (
+            <EvidenceModal
+              evidenceData={evidenceData}
+              onClose={() => setEvidenceData(null)}
+              onViewDiff={handleViewDiff}
             />
           )}
         </div>

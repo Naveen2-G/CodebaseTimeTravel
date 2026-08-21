@@ -3,6 +3,25 @@ const router = express.Router();
 const gitHistoryService = require('../services/gitHistoryService');
 const repositoryService = require('../services/repositoryService');
 const githubService = require('../services/githubService');
+const evidenceService = require('../services/evidenceService');
+
+// GET /api/repository/:repositoryId/evidence?filePath=...&line=...
+router.get('/:repositoryId/evidence', async (req, res) => {
+  try {
+    const { repositoryId } = req.params;
+    const filePath = req.query.filePath || req.query.path;
+    const line = req.query.line;
+    const result = await evidenceService.buildEvidencePackage(repositoryId, filePath, line);
+    return res.status(200).json(result);
+  } catch (err) {
+    const statusCode = err.status || 500;
+    const message = err.message || 'Failed to assemble evidence package.';
+    return res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
 
 // GET /api/repository/:repositoryId/blame?path=...&line=...
 router.get('/:repositoryId/blame', async (req, res) => {

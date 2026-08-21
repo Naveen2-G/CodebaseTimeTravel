@@ -4,13 +4,15 @@ export default function HistoryPanel({
   blameData,
   onViewDiff,
   onViewFileHistory,
+  onViewEvidence,
   onClose,
   isLoadingDiff,
-  isLoadingHistory
+  isLoadingHistory,
+  isLoadingEvidence
 }) {
   if (!blameData) return null;
 
-  const { file, line, commit, pullRequests, issues, githubWarning, githubAvailable } = blameData;
+  const { file, line, commit, pullRequests, issues, githubWarning } = blameData;
   const filesChanged = (commit && commit.filesChanged) || [];
   const prList = pullRequests || [];
   const issueList = issues || [];
@@ -146,6 +148,13 @@ export default function HistoryPanel({
         </div>
 
         <div className="history-actions flex-actions">
+          <button
+            className="view-evidence-pkg-btn"
+            onClick={() => onViewEvidence(file, line)}
+            disabled={isLoadingEvidence}
+          >
+            {isLoadingEvidence ? 'Assembling Package...' : '📦 View Evidence Package'}
+          </button>
           <button
             className="view-diff-btn"
             onClick={() => onViewDiff(commit.hash || (blameData.blame && blameData.blame.commit))}
