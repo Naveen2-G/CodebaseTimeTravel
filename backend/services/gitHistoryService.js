@@ -3,6 +3,20 @@ const { getRepoDirectory, runGitCommand } = require('./repositoryService');
 const fs = require('fs').promises;
 
 /**
+ * Get array of files changed in a specific commit
+ */
+async function getChangedFilesForCommit(repoDir, commitHash) {
+  try {
+    const stdout = await runGitCommand(['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', commitHash], repoDir);
+    if (!stdout) return [];
+    return stdout.split('\n').map(line => line.trim()).filter(Boolean);
+  } catch (err) {
+    console.error('Error fetching changed files for commit:', err);
+    return [];
+  }
+}
+
+/**
  * Perform Git blame on a specific line of a file
  */
 async function getGitBlame(repositoryId, relativePath, lineNumber) {
@@ -41,7 +55,7 @@ async function getGitBlame(repositoryId, relativePath, lineNumber) {
 
     const lines = stdout.split('\n');
     if (!lines || lines.length === 0 || !lines[0].trim()) {
-      throw { status: 500, message: 'Git blame returned empty output.' };
+      throw { status: 500, message: 'Unable to determine the history of this line.' };
     }
 
     const firstLine = lines[0].trim();
@@ -66,24 +80,33 @@ async function getGitBlame(repositoryId, relativePath, lineNumber) {
     }
 
     const dateISO = authorTime ? new Date(authorTime * 1000).toISOString() : new Date().toISOString();
+    const filesChanged = await getChangedFilesForCommit(repoDir, hash);
 
     return {
       success: true,
       file: relativePath,
       line: line,
+      blame: {
+        commit: hash,
+        author: author,
+        date: dateISO,
+        message: summary
+      },
       commit: {
         hash: hash,
         shortHash: hash.slice(0, 7),
         author: author,
+        email: authorEmail,
         authorEmail: authorEmail,
         date: dateISO,
-        message: summary
+        message: summary,
+        filesChanged: filesChanged
       }
     };
   } catch (err) {
     if (err.status) throw err;
     console.error('Git blame error:', err);
-    throw { status: 500, message: 'Git blame failed for the specified line.' };
+    throw { status: 500, message: 'Unable to determine the history of this line.' };
   }
 }
 
@@ -105,21 +128,17 @@ async function getCommitDetails(repositoryId, commitHash) {
   }
 
   try {
-    // Get commit details and changed files list
-    const stdout = await runGitCommand(['show', '--stat', '--name-only', '--format=%H%n%h%n%an%n%ae%n%cI%n%B---END-COMMIT-MSG---', cleanHash], repoDir);
-    
-    const parts = stdout.split('---END-COMMIT-MSG---');
-    const headerLines = parts[0].split('\n');
+    const stdout = await runGitCommand(['show', '--no-patch', '--format=%H%n%h%n%an%n%ae%n%cI%n%B', cleanHash], repoDir);
+    const lines = stdout.split('\n');
 
-    const hash = headerLines[0] ? headerLines[0].trim() : cleanHash;
-    const shortHash = headerLines[1] ? headerLines[1].trim() : cleanHash.slice(0, 7);
-    const author = headerLines[2] ? headerLines[2].trim() : '';
-    const authorEmail = headerLines[3] ? headerLines[3].trim() : '';
-    const date = headerLines[4] ? headerLines[4].trim() : '';
-    const message = headerLines.slice(5).join('\n').trim();
+    const hash = lines[0] ? lines[0].trim() : cleanHash;
+    const shortHash = lines[1] ? lines[1].trim() : cleanHash.slice(0, 7);
+    const author = lines[2] ? lines[2].trim() : '';
+    const authorEmail = lines[3] ? lines[3].trim() : '';
+    const date = lines[4] ? lines[4].trim() : '';
+    const message = lines.slice(5).join('\n').trim();
 
-    const remainder = parts[1] || '';
-    const filesChanged = remainder.split('\n').map(f => f.trim()).filter(f => f.length > 0 && !f.includes('files changed') && !f.includes('insertions') && !f.includes('deletions'));
+    const filesChanged = await getChangedFilesForCommit(repoDir, hash);
 
     return {
       success: true,
@@ -127,7 +146,8 @@ async function getCommitDetails(repositoryId, commitHash) {
         hash,
         shortHash,
         author,
-        authorEmail,
+        email: authorEmail,
+        authorEmail: authorEmail,
         date,
         message,
         filesChanged
@@ -170,6 +190,7 @@ async function getCommitDiff(repositoryId, commitHash, relativePath) {
     const stdout = await runGitCommand(gitArgs, repoDir);
     return {
       success: true,
+      commit: cleanHash,
       commitHash: cleanHash,
       file: relativePath || 'all',
       diff: stdout

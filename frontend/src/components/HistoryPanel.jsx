@@ -9,6 +9,7 @@ export default function HistoryPanel({
   if (!blameData) return null;
 
   const { file, line, commit } = blameData;
+  const filesChanged = (commit && commit.filesChanged) || [];
 
   return (
     <div className="history-panel-container">
@@ -19,23 +20,22 @@ export default function HistoryPanel({
 
       <div className="history-panel-body">
         <div className="context-section">
-          <label>Selected Target:</label>
+          <label>File:</label>
           <div className="target-pill">
             <span className="file-name">{file}</span>
-            <span className="line-tag">Line {line}</span>
           </div>
         </div>
 
         <div className="context-section">
-          <label>Introduced by Commit:</label>
+          <label>Selected line:</label>
+          <span className="line-tag">Line {line}</span>
+        </div>
+
+        <div className="context-section">
+          <label>Introduced by:</label>
           <div className="commit-badge">
             <code>{commit.shortHash || (commit.hash && commit.hash.slice(0, 7))}</code>
           </div>
-        </div>
-
-        <div className="context-section">
-          <label>Commit Message:</label>
-          <p className="commit-message-text">"{commit.message}"</p>
         </div>
 
         <div className="context-grid">
@@ -55,10 +55,26 @@ export default function HistoryPanel({
           </div>
         </div>
 
+        <div className="context-section">
+          <label>Commit Message:</label>
+          <p className="commit-message-text">"{commit.message}"</p>
+        </div>
+
+        {filesChanged.length > 0 && (
+          <div className="context-section">
+            <label>Files changed ({filesChanged.length}):</label>
+            <ul className="files-changed-list">
+              {filesChanged.map((f, idx) => (
+                <li key={idx}>• {f}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="history-actions">
           <button
             className="view-diff-btn"
-            onClick={() => onViewDiff(commit.hash)}
+            onClick={() => onViewDiff(commit.hash || (blameData.blame && blameData.blame.commit))}
             disabled={isLoadingDiff}
           >
             {isLoadingDiff ? 'Loading Diff...' : '📄 View Diff'}

@@ -700,6 +700,27 @@ body {
   background-color: #0284c7;
 }
 
+.files-changed-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 120px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+
+.files-changed-list li {
+  padding: 0.15rem 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
 .evidence-footer-note {
   font-size: 0.75rem;
   color: var(--text-muted);

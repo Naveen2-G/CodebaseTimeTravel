@@ -12,7 +12,24 @@ router.get('/:repositoryId/blame', async (req, res) => {
     return res.status(200).json(result);
   } catch (err) {
     const statusCode = err.status || 500;
-    const message = err.message || 'Git blame failed.';
+    const message = err.message || 'Unable to determine the history of this line.';
+    return res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
+// GET /api/repository/:repositoryId/commit/:commitHash/diff
+router.get('/:repositoryId/commit/:commitHash/diff', async (req, res) => {
+  try {
+    const { repositoryId, commitHash } = req.params;
+    const filePath = req.query.path;
+    const result = await gitHistoryService.getCommitDiff(repositoryId, commitHash, filePath);
+    return res.status(200).json(result);
+  } catch (err) {
+    const statusCode = err.status || 500;
+    const message = err.message || 'Commit diff could not be generated.';
     return res.status(statusCode).json({
       success: false,
       error: message
