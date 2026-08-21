@@ -1,5 +1,7 @@
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+
 const contextCache = new Map();
-let hasLoggedTokenWarning = false;
 
 /**
  * Get headers for GitHub API requests
@@ -8,17 +10,52 @@ function getGitHubHeaders() {
   const token = process.env.GITHUB_TOKEN;
   const headers = {
     'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
     'User-Agent': 'CodebaseTimeTraveler-App'
   };
 
   if (token && token.trim()) {
     headers['Authorization'] = `Bearer ${token.trim()}`;
-  } else if (!hasLoggedTokenWarning) {
-    console.warn('[GitHubService] Warning: GITHUB_TOKEN environment variable is not set. Requests will be unauthenticated (subject to GitHub rate limits).');
-    hasLoggedTokenWarning = true;
   }
 
   return headers;
+}
+
+/**
+ * Diagnostic status check for GitHub API integration
+ */
+async function checkGitHubStatus() {
+  const isConfigured = Boolean(process.env.GITHUB_TOKEN && process.env.GITHUB_TOKEN.trim());
+  const headers = getGitHubHeaders();
+
+  try {
+    const res = await fetch('https://api.github.com/rate_limit', { headers });
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        configured: isConfigured,
+        authenticated: isConfigured && res.status === 200,
+        rateLimit: data.rate ? data.rate.limit : 0,
+        remaining: data.rate ? data.rate.remaining : 0
+      };
+    } else {
+      const errBody = await res.json().catch(() => ({}));
+      console.warn(`[GitHubService] Diagnostic rate_limit check returned ${res.status}: ${errBody.message || ''}`);
+      return {
+        configured: isConfigured,
+        authenticated: false,
+        status: res.status,
+        error: errBody.message || 'GitHub API error'
+      };
+    }
+  } catch (err) {
+    console.error('[GitHubService] Diagnostic check error:', err.message);
+    return {
+      configured: isConfigured,
+      authenticated: false,
+      error: 'Network connection failure'
+    };
+  }
 }
 
 /**
@@ -56,24 +93,39 @@ async function getCommitGitHubContext(owner, repo, commitHash) {
   }
 
   const headers = getGitHubHeaders();
+  const endpointPath = `/repos/${owner}/${repo}/commits/${commitHash}/pulls`;
+  const prsUrl = `https://api.github.com${endpointPath}`;
 
   try {
-    // 1. List pull requests associated with commit
-    const prsUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(commitHash)}/pulls`;
     const prsRes = await fetch(prsUrl, { headers });
 
-    if (prsRes.status === 403 || prsRes.status === 429) {
-      console.warn(`[GitHubService] GitHub API rate limit hit when querying commit ${commitHash}`);
+    // Handle 401 Unauthorized (Invalid token)
+    if (prsRes.status === 401) {
+      const errBody = await prsRes.json().catch(() => ({}));
+      console.warn(`[GitHubService] API 401 error on ${endpointPath}: ${errBody.message || 'Unauthorized'}`);
       return {
         pullRequests: [],
         issues: [],
         githubAvailable: false,
-        warning: 'Git history available. GitHub PR/Issue context temporarily unavailable due to rate limits.'
+        warning: 'Git history available. GitHub PR/Issue context temporarily unavailable (Bad credentials).'
+      };
+    }
+
+    // Handle 403 Forbidden / Rate Limit
+    if (prsRes.status === 403 || prsRes.status === 429) {
+      const errBody = await prsRes.json().catch(() => ({}));
+      console.warn(`[GitHubService] API ${prsRes.status} error on ${endpointPath}: ${errBody.message || 'Forbidden/Rate limit'}`);
+      return {
+        pullRequests: [],
+        issues: [],
+        githubAvailable: false,
+        warning: 'Git history available. GitHub PR/Issue context temporarily unavailable due to rate limits or permissions.'
       };
     }
 
     if (!prsRes.ok) {
-      // 404 or other non-200
+      // 404 or other non-200 status (No PR or repo not found)
+      console.log(`[GitHubService] Info: GET ${endpointPath} returned ${prsRes.status}`);
       const result = {
         pullRequests: [],
         issues: [],
@@ -104,7 +156,7 @@ async function getCommitGitHubContext(owner, repo, commitHash) {
       body: pr.body || ''
     }));
 
-    // 2. Find linked issues from PR bodies
+    // Find linked issues from PR bodies
     const issueNumbersToFetch = new Set();
     for (const pr of pullRequests) {
       const nums = extractLinkedIssueNumbers(pr.body);
@@ -114,11 +166,11 @@ async function getCommitGitHubContext(owner, repo, commitHash) {
     const issues = [];
     for (const issueNum of issueNumbersToFetch) {
       try {
-        const issueUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${issueNum}`;
+        const issueEndpoint = `/repos/${owner}/${repo}/issues/${issueNum}`;
+        const issueUrl = `https://api.github.com${issueEndpoint}`;
         const issueRes = await fetch(issueUrl, { headers });
         if (issueRes.ok) {
           const issueData = await issueRes.json();
-          // Filter out pull requests if GitHub returned a PR under issues endpoint
           if (!issueData.pull_request) {
             issues.push({
               number: issueData.number,
@@ -128,9 +180,12 @@ async function getCommitGitHubContext(owner, repo, commitHash) {
               body: issueData.body || ''
             });
           }
+        } else {
+          const errBody = await issueRes.json().catch(() => ({}));
+          console.warn(`[GitHubService] API ${issueRes.status} on ${issueEndpoint}: ${errBody.message || ''}`);
         }
       } catch (issueErr) {
-        console.error(`[GitHubService] Failed to fetch issue #${issueNum}:`, issueErr);
+        console.error(`[GitHubService] Failed to fetch issue #${issueNum}:`, issueErr.message);
       }
     }
 
@@ -144,7 +199,7 @@ async function getCommitGitHubContext(owner, repo, commitHash) {
     return result;
 
   } catch (err) {
-    console.error('[GitHubService] Error fetching GitHub context:', err);
+    console.error('[GitHubService] Error fetching GitHub context:', err.message);
     return {
       pullRequests: [],
       issues: [],
@@ -156,5 +211,6 @@ async function getCommitGitHubContext(owner, repo, commitHash) {
 
 module.exports = {
   getCommitGitHubContext,
-  extractLinkedIssueNumbers
+  extractLinkedIssueNumbers,
+  checkGitHubStatus
 };
