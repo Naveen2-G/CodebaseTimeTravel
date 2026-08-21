@@ -27,7 +27,8 @@ function App() {
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [fileError, setFileError] = useState('');
 
-  const [selectedLine, setSelectedLine] = useState(null);
+  // selection state: { startLine: number, endLine: number, type: 'line'|'range' }
+  const [selection, setSelection] = useState(null);
   const [blameData, setBlameData] = useState(null);
   const [isLoadingBlame, setIsLoadingBlame] = useState(false);
 
@@ -132,7 +133,7 @@ function App() {
 
   const handleSelectFile = async (filePath) => {
     setSelectedFilePath(filePath);
-    setSelectedLine(null);
+    setSelection(null);
     setBlameData(null);
     setFileError('');
     setIsLoadingFile(true);
@@ -156,28 +157,33 @@ function App() {
     }
   };
 
-  const handleSelectLine = (lineNum) => {
-    setSelectedLine(lineNum);
+  const handleSelectSelection = (selObj) => {
+    setSelection(selObj);
   };
 
-  const handleInvestigateHistory = async (lineNum) => {
-    if (!selectedFilePath || !lineNum || !repoData) return;
+  const handleInvestigateHistory = async (selObj) => {
+    const currentSel = selObj || selection;
+    if (!selectedFilePath || !currentSel || !repoData) return;
+
+    const sLine = currentSel.startLine || currentSel.line;
+    const eLine = currentSel.endLine || sLine;
+
     setIsLoadingBlame(true);
     setBlameData(null);
 
     try {
-      // 1. Fetch Git blame for selected line
+      // 1. Fetch Git blame for selected line range
       const response = await fetch(
-        `http://localhost:5000/api/repository/${repoData.id}/blame?path=${encodeURIComponent(selectedFilePath)}&line=${lineNum}`
+        `http://localhost:5000/api/repository/${repoData.id}/blame?path=${encodeURIComponent(selectedFilePath)}&startLine=${sLine}&endLine=${eLine}`
       );
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        alert(data.error || 'Git blame failed for selected line.');
+        alert(data.error || 'Git blame failed for selected line range.');
         return;
       }
 
-      // 2. Fetch GitHub PR and Issue context for the target commit
+      // 2. Fetch GitHub PR and Issue context for primary commit
       const commitHash = data.commit ? data.commit.hash : (data.blame ? data.blame.commit : null);
       if (commitHash) {
         try {
@@ -249,15 +255,18 @@ function App() {
     }
   };
 
-  const handleViewEvidencePackage = async (filePath, lineNum) => {
+  const handleViewEvidencePackage = async (filePath, selObj) => {
     const targetFile = filePath || selectedFilePath;
-    const targetLine = lineNum || selectedLine;
-    if (!targetFile || !targetLine || !repoData) return;
+    const currentSel = selObj || selection;
+    if (!targetFile || !currentSel || !repoData) return;
+
+    const sLine = currentSel.startLine || currentSel.line;
+    const eLine = currentSel.endLine || sLine;
 
     setIsLoadingEvidence(true);
     try {
       const response = await fetch(
-        `http://localhost:5000/api/repository/${repoData.id}/evidence?filePath=${encodeURIComponent(targetFile)}&line=${targetLine}`
+        `http://localhost:5000/api/repository/${repoData.id}/evidence?filePath=${encodeURIComponent(targetFile)}&startLine=${sLine}&endLine=${eLine}`
       );
       const data = await response.json();
 
@@ -385,8 +394,8 @@ function App() {
                   filePath={selectedFilePath}
                   content={fileContent}
                   lines={fileLines}
-                  selectedLine={selectedLine}
-                  onSelectLine={handleSelectLine}
+                  selection={selection}
+                  onSelectSelection={handleSelectSelection}
                   onInvestigateHistory={handleInvestigateHistory}
                   onViewFileHistory={handleViewFileHistory}
                   isLoadingBlame={isLoadingBlame}

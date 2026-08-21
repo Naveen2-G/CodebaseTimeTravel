@@ -12,10 +12,14 @@ export default function HistoryPanel({
 }) {
   if (!blameData) return null;
 
-  const { file, line, commit, pullRequests, issues, githubWarning } = blameData;
+  const { file, line, startLine, endLine, commit, pullRequests, issues, githubWarning } = blameData;
   const filesChanged = (commit && commit.filesChanged) || [];
   const prList = pullRequests || [];
   const issueList = issues || [];
+
+  const sLine = startLine || line;
+  const eLine = endLine || line;
+  const isRange = sLine && eLine && sLine !== eLine;
 
   return (
     <div className="history-panel-container">
@@ -39,8 +43,10 @@ export default function HistoryPanel({
         </div>
 
         <div className="context-section">
-          <label>Selected line:</label>
-          <span className="line-tag">Line {line}</span>
+          <label>{isRange ? 'Selected lines:' : 'Selected line:'}</label>
+          <span className="line-tag">
+            {isRange ? `Lines ${sLine}–${eLine}` : `Line ${sLine}`}
+          </span>
         </div>
 
         <div className="context-section">
@@ -150,7 +156,7 @@ export default function HistoryPanel({
         <div className="history-actions flex-actions">
           <button
             className="view-evidence-pkg-btn"
-            onClick={() => onViewEvidence(file, line)}
+            onClick={() => onViewEvidence(file, { startLine: sLine, endLine: eLine })}
             disabled={isLoadingEvidence}
           >
             {isLoadingEvidence ? 'Assembling Package...' : '📦 View Evidence Package'}

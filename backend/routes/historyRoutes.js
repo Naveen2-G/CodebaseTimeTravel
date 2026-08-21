@@ -5,13 +5,14 @@ const repositoryService = require('../services/repositoryService');
 const githubService = require('../services/githubService');
 const evidenceService = require('../services/evidenceService');
 
-// GET /api/repository/:repositoryId/evidence?filePath=...&line=...
+// GET /api/repository/:repositoryId/evidence?filePath=...&line=...&startLine=...&endLine=...
 router.get('/:repositoryId/evidence', async (req, res) => {
   try {
     const { repositoryId } = req.params;
     const filePath = req.query.filePath || req.query.path;
-    const line = req.query.line;
-    const result = await evidenceService.buildEvidencePackage(repositoryId, filePath, line);
+    const startLine = req.query.startLine || req.query.line;
+    const endLine = req.query.endLine || startLine;
+    const result = await evidenceService.buildEvidencePackage(repositoryId, filePath, startLine, endLine);
     return res.status(200).json(result);
   } catch (err) {
     const statusCode = err.status || 500;
@@ -23,17 +24,18 @@ router.get('/:repositoryId/evidence', async (req, res) => {
   }
 });
 
-// GET /api/repository/:repositoryId/blame?path=...&line=...
+// GET /api/repository/:repositoryId/blame?path=...&line=...&startLine=...&endLine=...
 router.get('/:repositoryId/blame', async (req, res) => {
   try {
     const { repositoryId } = req.params;
     const filePath = req.query.path;
-    const lineNumber = req.query.line;
-    const result = await gitHistoryService.getGitBlame(repositoryId, filePath, lineNumber);
+    const startLine = req.query.startLine || req.query.line;
+    const endLine = req.query.endLine || startLine;
+    const result = await gitHistoryService.getGitBlame(repositoryId, filePath, startLine, endLine);
     return res.status(200).json(result);
   } catch (err) {
     const statusCode = err.status || 500;
-    const message = err.message || 'Unable to determine the history of this line.';
+    const message = err.message || 'Unable to determine the history of this line range.';
     return res.status(statusCode).json({
       success: false,
       error: message

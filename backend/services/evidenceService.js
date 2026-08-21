@@ -41,18 +41,23 @@ function detectLanguage(filePath) {
 }
 
 /**
- * Build unified Evidence Package for a selected line in a file
+ * Build unified Evidence Package for a selected line or line range in a file
  */
-async function buildEvidencePackage(repositoryId, relativePath, lineNumber) {
-  const lineNum = parseInt(lineNumber, 10);
-  if (isNaN(lineNum) || lineNum <= 0) {
-    throw { status: 400, message: 'Invalid line number. Must be a positive integer.' };
+async function buildEvidencePackage(repositoryId, relativePath, startLineNumber, endLineNumber) {
+  const sLine = parseInt(startLineNumber, 10);
+  const eLine = (endLineNumber !== undefined && endLineNumber !== null) ? parseInt(endLineNumber, 10) : sLine;
+
+  if (isNaN(sLine) || sLine <= 0 || isNaN(eLine) || eLine <= 0) {
+    throw { status: 400, message: 'Invalid line range. Must be positive integers.' };
   }
+
+  const minLine = Math.min(sLine, eLine);
+  const maxLine = Math.max(sLine, eLine);
 
   // 1. Get repository metadata
   const meta = await repositoryService.getRepoMetadata(repositoryId);
 
-  // 2. Read file content to extract the code at line
+  // 2. Read file content to extract the code range
   let fileContentObj;
   try {
     fileContentObj = await repositoryService.getFileContent(repositoryId, relativePath);
@@ -61,57 +66,39 @@ async function buildEvidencePackage(repositoryId, relativePath, lineNumber) {
   }
 
   const contentLines = (fileContentObj.content || '').split('\n');
-  if (lineNum > contentLines.length) {
-    throw { status: 400, message: `Line number ${lineNum} exceeds total lines (${contentLines.length}) in file.` };
+  if (minLine > contentLines.length) {
+    throw { status: 400, message: `Line number ${minLine} exceeds total lines (${contentLines.length}) in file.` };
   }
 
-  const selectedCode = contentLines[lineNum - 1] || '';
+  const clampedMaxLine = Math.min(maxLine, contentLines.length);
+  const selectedLinesSlice = contentLines.slice(minLine - 1, clampedMaxLine);
+  const selectedCode = selectedLinesSlice.join('\n');
   const language = detectLanguage(relativePath);
 
-  // 3. Git blame for selected line
+  // 3. Multi-line Git blame
   let blameData;
   try {
-    blameData = await gitHistoryService.getGitBlame(repositoryId, relativePath, lineNum);
+    blameData = await gitHistoryService.getGitBlame(repositoryId, relativePath, minLine, clampedMaxLine);
   } catch (err) {
     throw { status: err.status || 500, message: err.message || 'Git blame failed while building evidence package.' };
   }
 
-  const commitHash = blameData.commit ? blameData.commit.hash : (blameData.blame ? blameData.blame.commit : null);
+  const primaryCommitHash = blameData.commit ? blameData.commit.hash : '';
+  const uniqueCommits = blameData.uniqueCommits || [blameData.commit];
+  let commitDetails = blameData.commit;
 
-  // 4. Commit details
-  let commitDetails = {
-    hash: commitHash || '',
-    shortHash: commitHash ? commitHash.slice(0, 7) : '',
-    message: blameData.commit ? blameData.commit.message : '',
-    author: blameData.commit ? blameData.commit.author : '',
-    date: blameData.commit ? blameData.commit.date : '',
-    filesChanged: (blameData.commit && blameData.commit.filesChanged) || []
-  };
-
-  if (commitHash && (!commitDetails.message || commitDetails.filesChanged.length === 0)) {
-    try {
-      const fullCommitObj = await gitHistoryService.getCommitDetails(repositoryId, commitHash);
-      if (fullCommitObj && fullCommitObj.commit) {
-        commitDetails = fullCommitObj.commit;
-      }
-    } catch (_) {}
-  }
-
-  // 5. Commit diff
+  // 4. Commit diff for primary commit
   let diffObj = { available: false, content: null };
-  if (commitHash) {
+  if (primaryCommitHash) {
     try {
-      const diffRes = await gitHistoryService.getCommitDiff(repositoryId, commitHash, relativePath);
+      const diffRes = await gitHistoryService.getCommitDiff(repositoryId, primaryCommitHash, relativePath);
       if (diffRes && diffRes.success && diffRes.diff) {
-        diffObj = {
-          available: true,
-          content: diffRes.diff
-        };
+        diffObj = { available: true, content: diffRes.diff };
       }
     } catch (_) {}
   }
 
-  // 6. File history
+  // 5. File history
   let fileHistory = [];
   try {
     const histRes = await gitHistoryService.getFileHistory(repositoryId, relativePath);
@@ -120,33 +107,34 @@ async function buildEvidencePackage(repositoryId, relativePath, lineNumber) {
     }
   } catch (_) {}
 
-  // 7. GitHub PR & Issue evidence
-  let githubData = {
-    pullRequests: [],
-    issues: [],
-    github: {
-      available: false,
-      reason: 'GitHub context unavailable'
-    }
-  };
+  // 6. GitHub PR & Issue evidence across unique commits in range
+  let allPRs = [];
+  let allIssues = [];
+  let githubAvailable = true;
+  let githubReason = null;
 
-  if (meta && meta.owner && meta.repo && commitHash) {
-    try {
-      const ghRes = await githubService.getCommitGitHubContext(meta.owner, meta.repo, commitHash);
-      if (ghRes) {
-        githubData = {
-          pullRequests: ghRes.pullRequests || [],
-          issues: ghRes.issues || [],
-          github: {
-            available: Boolean(ghRes.githubAvailable),
-            reason: ghRes.warning || (ghRes.githubAvailable ? null : 'GitHub context unavailable')
-          }
-        };
-      }
-    } catch (_) {}
+  if (meta && meta.owner && meta.repo && uniqueCommits.length > 0) {
+    const prMap = new Map();
+    const issueMap = new Map();
+
+    for (const c of uniqueCommits) {
+      if (!c.hash) continue;
+      try {
+        const ghRes = await githubService.getCommitGitHubContext(meta.owner, meta.repo, c.hash);
+        if (ghRes) {
+          if (ghRes.githubAvailable === false) githubAvailable = false;
+          if (ghRes.warning) githubReason = ghRes.warning;
+          (ghRes.pullRequests || []).forEach(pr => prMap.set(pr.number, pr));
+          (ghRes.issues || []).forEach(issue => issueMap.set(issue.number, issue));
+        }
+      } catch (_) {}
+    }
+    allPRs = Array.from(prMap.values());
+    allIssues = Array.from(issueMap.values());
   }
 
-  // 8. Assemble unified Evidence Package
+  const selectionType = (minLine === clampedMaxLine) ? 'line' : 'range';
+
   return {
     success: true,
     repository: {
@@ -159,29 +147,38 @@ async function buildEvidencePackage(repositoryId, relativePath, lineNumber) {
       language: language
     },
     selection: {
-      line: lineNum,
+      startLine: minLine,
+      endLine: clampedMaxLine,
+      line: minLine,
+      type: selectionType,
       code: selectedCode
     },
     blame: {
-      commitHash: commitHash || '',
-      shortHash: commitHash ? commitHash.slice(0, 7) : '',
-      author: blameData.commit ? blameData.commit.author : '',
-      date: blameData.commit ? blameData.commit.date : '',
-      line: lineNum
+      startLine: minLine,
+      endLine: clampedMaxLine,
+      commitHash: primaryCommitHash,
+      shortHash: primaryCommitHash ? primaryCommitHash.slice(0, 7) : '',
+      author: commitDetails ? commitDetails.author : '',
+      date: commitDetails ? commitDetails.date : '',
+      lines: (blameData.blame && blameData.blame.lines) || []
     },
     commit: {
-      hash: commitDetails.hash || commitHash || '',
-      shortHash: commitDetails.shortHash || (commitHash ? commitHash.slice(0, 7) : ''),
-      message: commitDetails.message || '',
-      author: commitDetails.author || '',
-      date: commitDetails.date || '',
-      filesChanged: commitDetails.filesChanged || []
+      hash: commitDetails ? commitDetails.hash : '',
+      shortHash: commitDetails ? (commitDetails.shortHash || commitDetails.hash.slice(0, 7)) : '',
+      message: commitDetails ? commitDetails.message : '',
+      author: commitDetails ? commitDetails.author : '',
+      date: commitDetails ? commitDetails.date : '',
+      filesChanged: commitDetails ? (commitDetails.filesChanged || []) : []
     },
+    uniqueCommits: uniqueCommits,
     diff: diffObj,
     fileHistory: fileHistory,
-    pullRequests: githubData.pullRequests,
-    issues: githubData.issues,
-    github: githubData.github
+    pullRequests: allPRs,
+    issues: allIssues,
+    github: {
+      available: githubAvailable,
+      reason: githubReason
+    }
   };
 }
 

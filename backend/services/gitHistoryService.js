@@ -17,17 +17,22 @@ async function getChangedFilesForCommit(repoDir, commitHash) {
 }
 
 /**
- * Perform Git blame on a specific line of a file
+ * Perform Git blame on a specific line or line range of a file
  */
-async function getGitBlame(repositoryId, relativePath, lineNumber) {
+async function getGitBlame(repositoryId, relativePath, startLineNumber, endLineNumber) {
   if (!relativePath || typeof relativePath !== 'string' || !relativePath.trim()) {
     throw { status: 400, message: 'Invalid file path' };
   }
 
-  const line = parseInt(lineNumber, 10);
-  if (isNaN(line) || line < 1) {
-    throw { status: 400, message: 'Invalid line number' };
+  const sLine = parseInt(startLineNumber, 10);
+  const eLine = endLineNumber !== undefined && endLineNumber !== null ? parseInt(endLineNumber, 10) : sLine;
+
+  if (isNaN(sLine) || sLine < 1 || isNaN(eLine) || eLine < 1) {
+    throw { status: 400, message: 'Invalid line range' };
   }
+
+  const minLine = Math.min(sLine, eLine);
+  const maxLine = Math.max(sLine, eLine);
 
   const repoDir = getRepoDirectory(repositoryId);
   const normalizedRelative = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
@@ -50,63 +55,101 @@ async function getGitBlame(repositoryId, relativePath, lineNumber) {
   }
 
   try {
-    const gitArgs = ['blame', '-L', `${line},${line}`, '--porcelain', '--', normalizedRelative];
+    const gitArgs = ['blame', '-L', `${minLine},${maxLine}`, '--porcelain', '--', normalizedRelative];
     const stdout = await runGitCommand(gitArgs, repoDir);
 
     const lines = stdout.split('\n');
     if (!lines || lines.length === 0 || !lines[0].trim()) {
-      throw { status: 500, message: 'Unable to determine the history of this line.' };
+      throw { status: 500, message: 'Unable to determine history for this line range.' };
     }
 
-    const firstLine = lines[0].trim();
-    const hash = firstLine.split(' ')[0];
+    const blameMap = new Map();
+    const lineBlameList = [];
 
-    let author = 'Unknown';
-    let authorEmail = '';
-    let authorTime = 0;
-    let summary = 'No message';
+    let currentHash = '';
+    let currentAuthor = 'Unknown';
+    let currentEmail = '';
+    let currentTime = 0;
+    let currentSummary = '';
+    let currentFinalLine = 0;
 
-    for (let i = 1; i < lines.length; i++) {
+    for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
-      if (l.startsWith('author ')) {
-        author = l.substring(7).trim();
+      if (!l) continue;
+
+      if (/^[a-f0-9]{40}\s+\d+\s+\d+/.test(l)) {
+        const parts = l.trim().split(/\s+/);
+        currentHash = parts[0];
+        currentFinalLine = parseInt(parts[2], 10);
+      } else if (l.startsWith('author ')) {
+        currentAuthor = l.substring(7).trim();
       } else if (l.startsWith('author-mail ')) {
-        authorEmail = l.substring(12).trim().replace(/^<|>$/g, '');
+        currentEmail = l.substring(12).trim().replace(/^<|>$/g, '');
       } else if (l.startsWith('author-time ')) {
-        authorTime = parseInt(l.substring(12).trim(), 10);
+        currentTime = parseInt(l.substring(12).trim(), 10);
       } else if (l.startsWith('summary ')) {
-        summary = l.substring(8).trim();
+        currentSummary = l.substring(8).trim();
+      } else if (l.startsWith('\t')) {
+        const lineText = l.substring(1);
+        const dateISO = currentTime ? new Date(currentTime * 1000).toISOString() : new Date().toISOString();
+
+        const entry = {
+          line: currentFinalLine,
+          commitHash: currentHash,
+          shortHash: currentHash.slice(0, 7),
+          author: currentAuthor,
+          date: dateISO,
+          message: currentSummary,
+          code: lineText
+        };
+        lineBlameList.push(entry);
+
+        if (!blameMap.has(currentHash)) {
+          blameMap.set(currentHash, {
+            hash: currentHash,
+            shortHash: currentHash.slice(0, 7),
+            author: currentAuthor,
+            email: currentEmail,
+            date: dateISO,
+            message: currentSummary
+          });
+        }
       }
     }
 
-    const dateISO = authorTime ? new Date(authorTime * 1000).toISOString() : new Date().toISOString();
-    const filesChanged = await getChangedFilesForCommit(repoDir, hash);
+    const uniqueCommits = Array.from(blameMap.values());
+    const primaryCommitObj = uniqueCommits[0] || {
+      hash: currentHash,
+      shortHash: currentHash.slice(0, 7),
+      author: currentAuthor,
+      date: currentTime ? new Date(currentTime * 1000).toISOString() : new Date().toISOString(),
+      message: currentSummary
+    };
+
+    const filesChanged = await getChangedFilesForCommit(repoDir, primaryCommitObj.hash);
+    primaryCommitObj.filesChanged = filesChanged;
 
     return {
       success: true,
       file: relativePath,
-      line: line,
+      startLine: minLine,
+      endLine: maxLine,
+      line: minLine,
+      type: minLine === maxLine ? 'line' : 'range',
       blame: {
-        commit: hash,
-        author: author,
-        date: dateISO,
-        message: summary
+        commit: primaryCommitObj.hash,
+        author: primaryCommitObj.author,
+        date: primaryCommitObj.date,
+        message: primaryCommitObj.message,
+        lines: lineBlameList
       },
-      commit: {
-        hash: hash,
-        shortHash: hash.slice(0, 7),
-        author: author,
-        email: authorEmail,
-        authorEmail: authorEmail,
-        date: dateISO,
-        message: summary,
-        filesChanged: filesChanged
-      }
+      commit: primaryCommitObj,
+      uniqueCommits: uniqueCommits
     };
   } catch (err) {
     if (err.status) throw err;
     console.error('Git blame error:', err);
-    throw { status: 500, message: 'Unable to determine the history of this line.' };
+    throw { status: 500, message: 'Unable to determine history for this line range.' };
   }
 }
 

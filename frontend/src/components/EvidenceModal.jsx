@@ -25,6 +25,14 @@ export default function EvidenceModal({ evidenceData, onClose, onViewDiff }) {
     setTimeout(() => setCopySuccess(false), 2000);
   };
 
+  const isRange = selection && selection.type === 'range';
+  const lineLabel = isRange ? 'Lines:' : 'Line:';
+  const lineDisplay = selection
+    ? isRange
+      ? `${selection.startLine}–${selection.endLine}`
+      : selection.startLine || selection.line
+    : 'N/A';
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="evidence-modal-container" onClick={(e) => e.stopPropagation()}>
@@ -65,8 +73,8 @@ export default function EvidenceModal({ evidenceData, onClose, onViewDiff }) {
                     <code className="highlight-code">{file ? file.path : 'N/A'}</code>
                   </div>
                   <div>
-                    <label>Line:</label>
-                    <span className="line-badge">{selection ? selection.line : 'N/A'}</span>
+                    <label>{lineLabel}</label>
+                    <span className="line-badge">{lineDisplay}</span>
                   </div>
                   <div>
                     <label>Language:</label>
