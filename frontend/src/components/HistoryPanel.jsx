@@ -1,0 +1,74 @@
+import React from 'react';
+
+export default function HistoryPanel({
+  blameData,
+  onViewDiff,
+  onClose,
+  isLoadingDiff
+}) {
+  if (!blameData) return null;
+
+  const { file, line, commit } = blameData;
+
+  return (
+    <div className="history-panel-container">
+      <div className="history-panel-header">
+        <h3>HISTORICAL CONTEXT</h3>
+        <button className="close-panel-btn" onClick={onClose}>✕</button>
+      </div>
+
+      <div className="history-panel-body">
+        <div className="context-section">
+          <label>Selected Target:</label>
+          <div className="target-pill">
+            <span className="file-name">{file}</span>
+            <span className="line-tag">Line {line}</span>
+          </div>
+        </div>
+
+        <div className="context-section">
+          <label>Introduced by Commit:</label>
+          <div className="commit-badge">
+            <code>{commit.shortHash || (commit.hash && commit.hash.slice(0, 7))}</code>
+          </div>
+        </div>
+
+        <div className="context-section">
+          <label>Commit Message:</label>
+          <p className="commit-message-text">"{commit.message}"</p>
+        </div>
+
+        <div className="context-grid">
+          <div className="grid-item">
+            <label>Author:</label>
+            <span>{commit.author}</span>
+          </div>
+          <div className="grid-item">
+            <label>Date:</label>
+            <span>
+              {commit.date ? new Date(commit.date).toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+              }) : 'N/A'}
+            </span>
+          </div>
+        </div>
+
+        <div className="history-actions">
+          <button
+            className="view-diff-btn"
+            onClick={() => onViewDiff(commit.hash)}
+            disabled={isLoadingDiff}
+          >
+            {isLoadingDiff ? 'Loading Diff...' : '📄 View Diff'}
+          </button>
+        </div>
+
+        <div className="evidence-footer-note">
+          <span>ℹ️ Raw Git Evidence Layer</span>
+        </div>
+      </div>
+    </div>
+  );
+}

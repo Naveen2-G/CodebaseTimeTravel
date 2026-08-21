@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const repositoryRoutes = require('./routes/repositoryRoutes');
+const historyRoutes = require('./routes/historyRoutes');
 
 const app = express();
 const PORT = 5000;
@@ -17,11 +18,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Repository routes
+// Repository & History routes
 app.use('/api/repository', repositoryRoutes);
+app.use('/api/repository', historyRoutes);
+app.use('/api/history', historyRoutes);
 
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
 

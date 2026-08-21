@@ -63,6 +63,15 @@ async function countFilesRecursively(dirPath) {
   return count;
 }
 
+// Security helper: resolve repo directory and prevent path traversal
+function getRepoDirectory(repositoryId) {
+  if (!repositoryId || typeof repositoryId !== 'string' || repositoryId.includes('..') || repositoryId.includes('/') || repositoryId.includes('\\')) {
+    throw { status: 400, message: 'Invalid repository ID' };
+  }
+  const repoDir = path.resolve(__dirname, '..', 'repositories', repositoryId);
+  return repoDir;
+}
+
 /**
  * Import and process repository metadata
  */
@@ -97,7 +106,6 @@ async function importRepository(url) {
     } catch (_) {}
 
     const stderrStr = (err.stderr || '').toString();
-    const errorStr = (err.error ? err.error.toString() : '');
 
     if (err.error && err.error.killed) {
       throw { status: 408, message: 'Repository is too large or took too long to import.' };
@@ -143,8 +151,119 @@ async function importRepository(url) {
   }
 }
 
+/**
+ * Get nested file tree for a repository
+ */
+async function getFileTree(repositoryId) {
+  const repoDir = getRepoDirectory(repositoryId);
+
+  try {
+    await fs.access(repoDir);
+  } catch {
+    throw { status: 404, message: 'Repository does not exist.' };
+  }
+
+  const ignoredDirs = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
+
+  async function buildTree(currentDir, relativePath = '') {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    const nodes = [];
+
+    entries.sort((a, b) => {
+      if (a.isDirectory() && !b.isDirectory()) return -1;
+      if (!a.isDirectory() && b.isDirectory()) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!ignoredDirs.has(entry.name)) {
+          const itemRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+          const children = await buildTree(path.join(currentDir, entry.name), itemRelativePath);
+          nodes.push({
+            name: entry.name,
+            path: itemRelativePath,
+            type: 'folder',
+            children
+          });
+        }
+      } else if (entry.isFile()) {
+        const itemRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+        nodes.push({
+          name: entry.name,
+          path: itemRelativePath,
+          type: 'file'
+        });
+      }
+    }
+    return nodes;
+  }
+
+  const tree = await buildTree(repoDir);
+  return { success: true, tree };
+}
+
+const BINARY_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico',
+  '.mp4', '.mp3', '.zip', '.pdf', '.exe', '.bin', '.tar',
+  '.gz', '.woff', '.woff2', '.ttf', '.eot', '.jar', '.class', '.pyc'
+]);
+
+/**
+ * Read source file content safely
+ */
+async function getFileContent(repositoryId, relativePath) {
+  if (!relativePath || typeof relativePath !== 'string' || !relativePath.trim()) {
+    throw { status: 400, message: 'Invalid file path' };
+  }
+
+  const repoDir = getRepoDirectory(repositoryId);
+  const normalizedRelative = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
+  const targetPath = path.resolve(repoDir, normalizedRelative);
+
+  if (!targetPath.startsWith(repoDir + path.sep) && targetPath !== repoDir) {
+    throw { status: 400, message: 'Invalid file path' };
+  }
+
+  try {
+    await fs.access(repoDir);
+  } catch {
+    throw { status: 404, message: 'Repository does not exist.' };
+  }
+
+  try {
+    await fs.access(targetPath);
+  } catch {
+    throw { status: 404, message: 'File does not exist.' };
+  }
+
+  const ext = path.extname(targetPath).toLowerCase();
+  if (BINARY_EXTENSIONS.has(ext)) {
+    throw { status: 400, message: 'This file is a binary file and cannot be displayed.' };
+  }
+
+  const stat = await fs.stat(targetPath);
+  if (stat.size > 1024 * 1024) {
+    throw { status: 400, message: 'This file is too large to display.' };
+  }
+
+  const content = await fs.readFile(targetPath, 'utf8');
+  const lines = content.split('\n').length;
+
+  return {
+    success: true,
+    path: relativePath,
+    content,
+    lines
+  };
+}
+
 module.exports = {
   importRepository,
   parseGitHubUrl,
-  countFilesRecursively
+  countFilesRecursively,
+  getRepoDirectory,
+  getFileTree,
+  getFileContent,
+  runGitCommand
 };
