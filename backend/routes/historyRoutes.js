@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const gitHistoryService = require('../services/gitHistoryService');
+const repositoryService = require('../services/repositoryService');
+const githubService = require('../services/githubService');
 
 // GET /api/repository/:repositoryId/blame?path=...&line=...
 router.get('/:repositoryId/blame', async (req, res) => {
@@ -30,6 +32,41 @@ router.get('/:repositoryId/history', async (req, res) => {
   } catch (err) {
     const statusCode = err.status || 500;
     const message = err.message || 'File history unavailable.';
+    return res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
+// GET /api/repository/:repositoryId/commit/:commitHash/context
+router.get('/:repositoryId/commit/:commitHash/context', async (req, res) => {
+  try {
+    const { repositoryId, commitHash } = req.params;
+
+    // 1. Local Git commit details
+    const commitDetails = await gitHistoryService.getCommitDetails(repositoryId, commitHash);
+
+    // 2. Repository metadata (owner & repo name)
+    const meta = await repositoryService.getRepoMetadata(repositoryId);
+
+    // 3. GitHub PR & Issue evidence
+    let githubContext = { pullRequests: [], issues: [], githubAvailable: false };
+    if (meta && meta.owner && meta.repo) {
+      githubContext = await githubService.getCommitGitHubContext(meta.owner, meta.repo, commitHash);
+    }
+
+    return res.status(200).json({
+      success: true,
+      commit: commitDetails.commit,
+      pullRequests: githubContext.pullRequests || [],
+      issues: githubContext.issues || [],
+      githubAvailable: Boolean(githubContext.githubAvailable),
+      warning: githubContext.warning || null
+    });
+  } catch (err) {
+    const statusCode = err.status || 500;
+    const message = err.message || 'Unable to retrieve commit context.';
     return res.status(statusCode).json({
       success: false,
       error: message

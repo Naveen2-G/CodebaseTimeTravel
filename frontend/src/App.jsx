@@ -162,6 +162,7 @@ function App() {
     setBlameData(null);
 
     try {
+      // 1. Fetch Git blame for selected line
       const response = await fetch(
         `http://localhost:5000/api/repository/${repoData.id}/blame?path=${encodeURIComponent(selectedFilePath)}&line=${lineNum}`
       );
@@ -169,9 +170,29 @@ function App() {
 
       if (!response.ok || !data.success) {
         alert(data.error || 'Git blame failed for selected line.');
-      } else {
-        setBlameData(data);
+        return;
       }
+
+      // 2. Fetch GitHub PR and Issue context for the target commit
+      const commitHash = data.commit ? data.commit.hash : (data.blame ? data.blame.commit : null);
+      if (commitHash) {
+        try {
+          const ctxRes = await fetch(`http://localhost:5000/api/repository/${repoData.id}/commit/${commitHash}/context`);
+          if (ctxRes.ok) {
+            const ctxData = await ctxRes.json();
+            if (ctxData.success) {
+              data.pullRequests = ctxData.pullRequests || [];
+              data.issues = ctxData.issues || [];
+              data.githubAvailable = ctxData.githubAvailable;
+              data.githubWarning = ctxData.warning;
+            }
+          }
+        } catch (ctxErr) {
+          console.warn('Could not fetch GitHub context:', ctxErr);
+        }
+      }
+
+      setBlameData(data);
     } catch (err) {
       alert('Error performing Git blame.');
     } finally {

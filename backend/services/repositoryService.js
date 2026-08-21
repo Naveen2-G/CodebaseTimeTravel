@@ -41,6 +41,16 @@ function parseGitHubUrl(url) {
   return { owner, repo, canonicalUrl };
 }
 
+// Parse owner and repo from Git remote URL
+function parseOwnerAndRepoFromRemote(remoteUrl) {
+  if (!remoteUrl) return null;
+  const match = remoteUrl.match(/github\.com[:/]([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(\.git)?$/);
+  if (match) {
+    return { owner: match[1], repo: match[2].replace(/\.git$/, '') };
+  }
+  return null;
+}
+
 // Count files recursively excluding ignored directories
 async function countFilesRecursively(dirPath) {
   const ignoredDirs = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
@@ -73,6 +83,34 @@ function getRepoDirectory(repositoryId) {
 }
 
 /**
+ * Retrieve metadata (owner, repo, url) for a stored repository
+ */
+async function getRepoMetadata(repositoryId) {
+  const repoDir = getRepoDirectory(repositoryId);
+  const metaFile = path.join(repoDir, '_metadata.json');
+
+  try {
+    const raw = await fs.readFile(metaFile, 'utf8');
+    return JSON.parse(raw);
+  } catch (_) {}
+
+  try {
+    const remoteUrl = await runGitCommand(['remote', 'get-url', 'origin'], repoDir);
+    const parsed = parseOwnerAndRepoFromRemote(remoteUrl);
+    if (parsed) {
+      return {
+        id: repositoryId,
+        owner: parsed.owner,
+        repo: parsed.repo,
+        url: `https://github.com/${parsed.owner}/${parsed.repo}`
+      };
+    }
+  } catch (_) {}
+
+  return { id: repositoryId, owner: '', repo: '', url: '' };
+}
+
+/**
  * Import and process repository metadata
  */
 async function importRepository(url) {
@@ -100,7 +138,6 @@ async function importRepository(url) {
   } catch (err) {
     console.error('Git clone error:', err);
     
-    // Clean up partial dir if created
     try {
       await fs.rm(targetDir, { recursive: true, force: true });
     } catch (_) {}
@@ -117,27 +154,32 @@ async function importRepository(url) {
     throw { status: 500, message: 'Unable to import repository.' };
   }
 
-  // 5. Extract metadata (File count, Commit count, Latest commit)
+  // 5. Extract metadata & save _metadata.json
   try {
     const fileCount = await countFilesRecursively(targetDir);
 
-    // Commit count
     const commitCountStr = await runGitCommand(['rev-list', '--count', 'HEAD'], targetDir);
     const commitCount = parseInt(commitCountStr, 10) || 0;
 
-    // Latest commit details
     const gitLogStr = await runGitCommand(['log', '-1', '--format=%H%n%s%n%cI'], targetDir);
     const [hash, message, date] = gitLogStr.split('\n');
+
+    const metaObj = {
+      id: uniqueId,
+      name: repo,
+      owner: owner,
+      repo: repo,
+      url: canonicalUrl,
+      files: fileCount,
+      commits: commitCount
+    };
+
+    await fs.writeFile(path.join(targetDir, '_metadata.json'), JSON.stringify(metaObj, null, 2));
 
     return {
       success: true,
       repository: {
-        id: uniqueId,
-        name: repo,
-        owner: owner,
-        url: canonicalUrl,
-        files: fileCount,
-        commits: commitCount,
+        ...metaObj,
         latestCommit: {
           hash: hash || '',
           message: message || '',
@@ -176,6 +218,8 @@ async function getFileTree(repositoryId) {
     });
 
     for (const entry of entries) {
+      if (entry.name === '_metadata.json') continue; // Hide metadata file from tree
+
       if (entry.isDirectory()) {
         if (!ignoredDirs.has(entry.name)) {
           const itemRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
@@ -263,6 +307,7 @@ module.exports = {
   parseGitHubUrl,
   countFilesRecursively,
   getRepoDirectory,
+  getRepoMetadata,
   getFileTree,
   getFileContent,
   runGitCommand
