@@ -4,7 +4,9 @@ import './App.css';
 function App() {
   const [backendStatus, setBackendStatus] = useState('checking'); // 'checking' | 'connected' | 'offline'
   const [repoUrl, setRepoUrl] = useState('');
-  const [importNotice, setImportNotice] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [repoData, setRepoData] = useState(null);
 
   const checkHealth = async () => {
     try {
@@ -30,10 +32,49 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleImport = (e) => {
+  const handleImport = async (e) => {
     e.preventDefault();
-    if (!repoUrl.trim()) return;
-    setImportNotice(`Repository submitted: ${repoUrl}`);
+    setErrorMsg('');
+    setRepoData(null);
+
+    // Client-side validation
+    if (!repoUrl || !repoUrl.trim()) {
+      setErrorMsg('Please enter a GitHub repository URL.');
+      return;
+    }
+
+    const githubRegex = /^https:\/\/(www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(\.git)?\/?$/;
+    if (!githubRegex.test(repoUrl.trim())) {
+      setErrorMsg('Please enter a valid GitHub repository URL.');
+      return;
+    }
+
+    if (backendStatus === 'offline') {
+      setErrorMsg('Unable to import repository. Backend server is offline.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('http://localhost:5000/api/repository/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: repoUrl.trim() }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setErrorMsg(data.error || 'Could not import repository. Please check the URL and try again.');
+      } else {
+        setRepoData(data.repository);
+      }
+    } catch (err) {
+      setErrorMsg('Unable to import repository. Please check server connection.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -63,15 +104,54 @@ function App() {
             placeholder="https://github.com/username/repository"
             value={repoUrl}
             onChange={(e) => setRepoUrl(e.target.value)}
+            disabled={isLoading}
           />
-          <button type="submit" className="import-btn">
-            Import Repository
+          <button type="submit" className="import-btn" disabled={isLoading}>
+            {isLoading ? 'Importing...' : 'Import Repository'}
           </button>
         </form>
 
-        {importNotice && (
-          <div className="notice-box">
-            {importNotice}
+        {isLoading && (
+          <div className="loading-box">
+            <p className="loading-title">Importing repository...</p>
+            <p className="loading-sub">Please wait.</p>
+          </div>
+        )}
+
+        {errorMsg && (
+          <div className="error-box">
+            <p>{errorMsg}</p>
+          </div>
+        )}
+
+        {repoData && (
+          <div className="repo-card">
+            <div className="repo-card-header">
+              <span className="success-badge">Repository imported ✓</span>
+            </div>
+            <h2 className="repo-name">{repoData.name}</h2>
+
+            <div className="repo-stats">
+              <div className="stat-pill">
+                <span className="stat-value">{repoData.files}</span>
+                <span className="stat-label">Files</span>
+              </div>
+              <div className="stat-pill">
+                <span className="stat-value">{repoData.commits}</span>
+                <span className="stat-label">Commits</span>
+              </div>
+            </div>
+
+            {repoData.latestCommit && (
+              <div className="latest-commit-box">
+                <span className="commit-header">Latest Commit:</span>
+                <p className="commit-msg">"{repoData.latestCommit.message}"</p>
+              </div>
+            )}
+
+            <button className="explore-btn" disabled>
+              Explore Codebase
+            </button>
           </div>
         )}
       </main>
@@ -80,4 +160,5 @@ function App() {
 }
 
 export default App;
+
 

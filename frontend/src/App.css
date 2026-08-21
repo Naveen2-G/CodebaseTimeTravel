@@ -159,13 +159,148 @@ body {
   background-color: var(--primary-hover);
 }
 
-.notice-box {
-  margin-top: 1.5rem;
-  padding: 0.75rem 1.25rem;
+.import-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+
+.loading-box {
+  margin-top: 2rem;
+  padding: 1.25rem 2rem;
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-muted);
-  font-size: 0.9rem;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 650px;
+  box-sizing: border-box;
 }
+
+.loading-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--primary-accent);
+}
+
+.loading-sub {
+  margin: 0.5rem 0 0 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.error-box {
+  margin-top: 2rem;
+  padding: 1rem 1.5rem;
+  background-color: #450a0a;
+  border: 1px solid #991b1b;
+  border-radius: 8px;
+  color: #fca5a5;
+  width: 100%;
+  max-width: 650px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.error-box p {
+  margin: 0;
+}
+
+.repo-card {
+  margin-top: 2.5rem;
+  padding: 2rem;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 650px;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.repo-card-header {
+  margin-bottom: 1rem;
+}
+
+.success-badge {
+  color: #4ade80;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.repo-name {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0 0 1.5rem 0;
+  color: var(--text-main);
+}
+
+.repo-stats {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1.75rem;
+}
+
+.stat-pill {
+  flex: 1;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  padding: 1rem;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--primary-accent);
+}
+
+.stat-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.25rem;
+}
+
+.latest-commit-box {
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.commit-header {
+  display: block;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.commit-msg {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-main);
+  font-style: italic;
+}
+
+.explore-btn {
+  width: 100%;
+  padding: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: #334155;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 
