@@ -7,7 +7,9 @@ export default function CodeViewer({
   selectedLine,
   onSelectLine,
   onInvestigateHistory,
+  onViewFileHistory,
   isLoadingBlame,
+  isLoadingHistory,
   error
 }) {
   if (error) {
@@ -35,7 +37,16 @@ export default function CodeViewer({
     <div className="code-viewer-container">
       <div className="code-viewer-header">
         <span className="file-path-badge">📄 {filePath}</span>
-        <span className="file-stats-badge">{lines || contentLines.length} lines</span>
+        <div className="header-right-group">
+          <span className="file-stats-badge">{lines || contentLines.length} lines</span>
+          <button
+            className="header-history-btn"
+            onClick={() => onViewFileHistory(filePath)}
+            disabled={isLoadingHistory}
+          >
+            {isLoadingHistory ? 'Loading...' : '📜 View File History'}
+          </button>
+        </div>
       </div>
 
       {selectedLine && (

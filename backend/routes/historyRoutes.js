@@ -20,6 +20,23 @@ router.get('/:repositoryId/blame', async (req, res) => {
   }
 });
 
+// GET /api/repository/:repositoryId/history?path=...
+router.get('/:repositoryId/history', async (req, res) => {
+  try {
+    const { repositoryId } = req.params;
+    const filePath = req.query.path;
+    const result = await gitHistoryService.getFileHistory(repositoryId, filePath);
+    return res.status(200).json(result);
+  } catch (err) {
+    const statusCode = err.status || 500;
+    const message = err.message || 'File history unavailable.';
+    return res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
 // GET /api/repository/:repositoryId/commit/:commitHash/diff
 router.get('/:repositoryId/commit/:commitHash/diff', async (req, res) => {
   try {

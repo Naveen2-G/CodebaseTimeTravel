@@ -3,8 +3,10 @@ import React from 'react';
 export default function HistoryPanel({
   blameData,
   onViewDiff,
+  onViewFileHistory,
   onClose,
-  isLoadingDiff
+  isLoadingDiff,
+  isLoadingHistory
 }) {
   if (!blameData) return null;
 
@@ -71,13 +73,20 @@ export default function HistoryPanel({
           </div>
         )}
 
-        <div className="history-actions">
+        <div className="history-actions flex-actions">
           <button
             className="view-diff-btn"
             onClick={() => onViewDiff(commit.hash || (blameData.blame && blameData.blame.commit))}
             disabled={isLoadingDiff}
           >
             {isLoadingDiff ? 'Loading Diff...' : '📄 View Diff'}
+          </button>
+          <button
+            className="view-history-btn"
+            onClick={() => onViewFileHistory(file)}
+            disabled={isLoadingHistory}
+          >
+            {isLoadingHistory ? 'Loading History...' : '📜 View File History'}
           </button>
         </div>
 

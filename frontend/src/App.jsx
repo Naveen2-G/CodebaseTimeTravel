@@ -4,6 +4,7 @@ import FileTree from './components/FileTree';
 import CodeViewer from './components/CodeViewer';
 import HistoryPanel from './components/HistoryPanel';
 import DiffModal from './components/DiffModal';
+import FileHistoryModal from './components/FileHistoryModal';
 
 function App() {
   const [backendStatus, setBackendStatus] = useState('checking'); // 'checking' | 'connected' | 'offline'
@@ -31,6 +32,9 @@ function App() {
 
   const [diffData, setDiffData] = useState(null);
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
+
+  const [fileHistoryData, setFileHistoryData] = useState(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const checkHealth = async () => {
     try {
@@ -181,7 +185,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/repository/${repoData.id}/diff/${commitHash}?path=${encodeURIComponent(selectedFilePath || '')}`
+        `http://localhost:5000/api/repository/${repoData.id}/commit/${commitHash}/diff?path=${encodeURIComponent(selectedFilePath || '')}`
       );
       const data = await response.json();
 
@@ -194,6 +198,29 @@ function App() {
       alert('Error fetching commit diff.');
     } finally {
       setIsLoadingDiff(false);
+    }
+  };
+
+  const handleViewFileHistory = async (filePath) => {
+    const targetFile = filePath || selectedFilePath;
+    if (!targetFile || !repoData) return;
+    setIsLoadingHistory(true);
+
+    try {
+      const response = await fetch(
+        `http://localhost:5000/api/repository/${repoData.id}/history?path=${encodeURIComponent(targetFile)}`
+      );
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        alert(data.error || 'Failed to fetch file history.');
+      } else {
+        setFileHistoryData(data);
+      }
+    } catch (err) {
+      alert('Error fetching file history.');
+    } finally {
+      setIsLoadingHistory(false);
     }
   };
 
@@ -312,7 +339,9 @@ function App() {
                   selectedLine={selectedLine}
                   onSelectLine={handleSelectLine}
                   onInvestigateHistory={handleInvestigateHistory}
+                  onViewFileHistory={handleViewFileHistory}
                   isLoadingBlame={isLoadingBlame}
+                  isLoadingHistory={isLoadingHistory}
                   error={fileError}
                 />
               )}
@@ -322,8 +351,10 @@ function App() {
               <HistoryPanel
                 blameData={blameData}
                 onViewDiff={handleViewDiff}
+                onViewFileHistory={handleViewFileHistory}
                 onClose={() => setBlameData(null)}
                 isLoadingDiff={isLoadingDiff}
+                isLoadingHistory={isLoadingHistory}
               />
             )}
           </div>
@@ -332,6 +363,14 @@ function App() {
             <DiffModal
               diffData={diffData}
               onClose={() => setDiffData(null)}
+            />
+          )}
+
+          {fileHistoryData && (
+            <FileHistoryModal
+              historyData={fileHistoryData}
+              onViewDiff={handleViewDiff}
+              onClose={() => setFileHistoryData(null)}
             />
           )}
         </div>

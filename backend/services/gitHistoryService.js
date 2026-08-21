@@ -202,8 +202,81 @@ async function getCommitDiff(repositoryId, commitHash, relativePath) {
   }
 }
 
+/**
+ * Retrieve commit history affecting a specific file
+ */
+async function getFileHistory(repositoryId, relativePath) {
+  if (!relativePath || typeof relativePath !== 'string' || !relativePath.trim()) {
+    throw { status: 400, message: 'Invalid file path' };
+  }
+
+  const repoDir = getRepoDirectory(repositoryId);
+  const normalizedRelative = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
+  const targetPath = path.resolve(repoDir, normalizedRelative);
+
+  if (!targetPath.startsWith(repoDir + path.sep) && targetPath !== repoDir) {
+    throw { status: 400, message: 'Invalid file path' };
+  }
+
+  try {
+    await fs.access(repoDir);
+  } catch {
+    throw { status: 404, message: 'Repository does not exist.' };
+  }
+
+  try {
+    await fs.access(targetPath);
+  } catch {
+    throw { status: 404, message: 'File does not exist.' };
+  }
+
+  try {
+    const gitArgs = ['log', '--follow', '--format=%H%n%h%n%an%n%ae%n%cI%n%s%n---END-LOG-ITEM---', '--', normalizedRelative];
+    const stdout = await runGitCommand(gitArgs, repoDir);
+
+    if (!stdout || !stdout.trim()) {
+      return {
+        success: true,
+        file: relativePath,
+        history: []
+      };
+    }
+
+    const items = stdout.split('---END-LOG-ITEM---').map(item => item.trim()).filter(Boolean);
+    const history = items.map(item => {
+      const lines = item.split('\n').map(l => l.trim());
+      const hash = lines[0] || '';
+      const shortHash = lines[1] || (hash ? hash.slice(0, 7) : '');
+      const author = lines[2] || 'Unknown';
+      const email = lines[3] || '';
+      const date = lines[4] || '';
+      const message = lines[5] || '';
+
+      return {
+        hash,
+        shortHash,
+        author,
+        email,
+        date,
+        message
+      };
+    });
+
+    return {
+      success: true,
+      file: relativePath,
+      history
+    };
+  } catch (err) {
+    if (err.status) throw err;
+    console.error('File history error:', err);
+    throw { status: 500, message: 'File history unavailable.' };
+  }
+}
+
 module.exports = {
   getGitBlame,
   getCommitDetails,
-  getCommitDiff
+  getCommitDiff,
+  getFileHistory
 };
