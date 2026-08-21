@@ -33,6 +33,18 @@ export default function CodeViewer({
 
   const contentLines = (content || '').split('\n');
 
+  const handleRowClick = (e, lineNum) => {
+    // Clear any native browser text selection range so single click selects ONLY this line
+    if (window.getSelection) {
+      const selection = window.getSelection();
+      // Only clear if selection is not a purposeful multi-character text drag inside code cell
+      if (selection.isCollapsed || selection.toString().length === 0) {
+        selection.removeAllRanges();
+      }
+    }
+    onSelectLine(lineNum);
+  };
+
   return (
     <div className="code-viewer-container">
       <div className="code-viewer-header">
@@ -67,14 +79,16 @@ export default function CodeViewer({
           <tbody>
             {contentLines.map((lineText, idx) => {
               const lineNum = idx + 1;
-              const isSelected = selectedLine === lineNum;
+              const isSelected = Number(selectedLine) === lineNum;
               return (
                 <tr
                   key={lineNum}
                   className={`code-row ${isSelected ? 'selected-row' : ''}`}
-                  onClick={() => onSelectLine(lineNum)}
+                  onClick={(e) => handleRowClick(e, lineNum)}
                 >
-                  <td className="line-number-cell">{lineNum}</td>
+                  <td className="line-number-cell" style={{ userSelect: 'none' }}>
+                    {lineNum}
+                  </td>
                   <td className="line-code-cell">
                     <pre>{lineText || ' '}</pre>
                   </td>
