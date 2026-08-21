@@ -4,6 +4,48 @@ const gitHistoryService = require('../services/gitHistoryService');
 const repositoryService = require('../services/repositoryService');
 const githubService = require('../services/githubService');
 const evidenceService = require('../services/evidenceService');
+const aiService = require('../services/aiService');
+
+// POST /api/repository/:repositoryId/explain
+router.post('/:repositoryId/explain', async (req, res) => {
+  try {
+    const { repositoryId } = req.params;
+    const { filePath, startLine, endLine, line } = req.body || {};
+
+    const targetFile = filePath;
+    const sLine = startLine || line;
+    const eLine = endLine || sLine;
+
+    if (!repositoryId) {
+      return res.status(400).json({ success: false, error: 'Repository ID is required.' });
+    }
+    if (!targetFile) {
+      return res.status(400).json({ success: false, error: 'File path is required.' });
+    }
+    if (!sLine) {
+      return res.status(400).json({ success: false, error: 'Start line is required.' });
+    }
+
+    // 1. Server-side Evidence Package assembly (Facts Layer)
+    const evidencePackage = await evidenceService.buildEvidencePackage(repositoryId, targetFile, sLine, eLine);
+
+    // 2. Call AI explanation service using Gemini
+    const aiResult = await aiService.generateExplanation(evidencePackage);
+
+    return res.status(200).json({
+      success: true,
+      explanation: aiResult.explanation
+    });
+  } catch (err) {
+    console.error('AI Explanation Endpoint Error:', err.message || err);
+    const statusCode = err.status || 500;
+    const message = err.message || 'AI explanation temporarily unavailable.';
+    return res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
 
 // GET /api/repository/:repositoryId/evidence?filePath=...&line=...&startLine=...&endLine=...
 router.get('/:repositoryId/evidence', async (req, res) => {

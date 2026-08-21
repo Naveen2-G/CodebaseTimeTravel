@@ -41,6 +41,11 @@ function App() {
   const [evidenceData, setEvidenceData] = useState(null);
   const [isLoadingEvidence, setIsLoadingEvidence] = useState(false);
 
+  // AI Explanation State
+  const [explanationData, setExplanationData] = useState(null);
+  const [isExplaining, setIsExplaining] = useState(false);
+  const [explanationError, setExplanationError] = useState(null);
+
   const checkHealth = async () => {
     try {
       const response = await fetch('http://localhost:5000/api/health');
@@ -264,6 +269,9 @@ function App() {
     const eLine = currentSel.endLine || sLine;
 
     setIsLoadingEvidence(true);
+    setExplanationData(null);
+    setExplanationError(null);
+
     try {
       const response = await fetch(
         `http://localhost:5000/api/repository/${repoData.id}/evidence?filePath=${encodeURIComponent(targetFile)}&startLine=${sLine}&endLine=${eLine}`
@@ -279,6 +287,43 @@ function App() {
       alert('Error building evidence package.');
     } finally {
       setIsLoadingEvidence(false);
+    }
+  };
+
+  const handleExplainCode = async (filePath, startLine, endLine) => {
+    const targetFile = filePath || selectedFilePath;
+    const currentSel = selection || { startLine, endLine };
+    if (!targetFile || !repoData) return;
+
+    const sLine = startLine || (currentSel ? currentSel.startLine : 1);
+    const eLine = endLine || (currentSel ? currentSel.endLine : sLine);
+
+    setIsExplaining(true);
+    setExplanationError(null);
+    setExplanationData(null);
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/repository/${repoData.id}/explain`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filePath: targetFile,
+          startLine: sLine,
+          endLine: eLine
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setExplanationError(data.error || 'AI explanation temporarily unavailable.');
+      } else {
+        setExplanationData(data.explanation);
+      }
+    } catch (err) {
+      setExplanationError('AI explanation temporarily unavailable.');
+    } finally {
+      setIsExplaining(false);
     }
   };
 
@@ -439,6 +484,10 @@ function App() {
               evidenceData={evidenceData}
               onClose={() => setEvidenceData(null)}
               onViewDiff={handleViewDiff}
+              onExplainCode={handleExplainCode}
+              explanationData={explanationData}
+              isExplaining={isExplaining}
+              explanationError={explanationError}
             />
           )}
         </div>

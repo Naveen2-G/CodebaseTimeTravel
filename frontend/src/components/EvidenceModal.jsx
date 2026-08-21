@@ -1,6 +1,14 @@
 import React, { useState } from 'react';
 
-export default function EvidenceModal({ evidenceData, onClose, onViewDiff }) {
+export default function EvidenceModal({
+  evidenceData,
+  onClose,
+  onViewDiff,
+  onExplainCode,
+  explanationData,
+  isExplaining,
+  explanationError
+}) {
   const [viewTab, setViewTab] = useState('formatted'); // 'formatted' | 'json'
   const [copySuccess, setCopySuccess] = useState(false);
 
@@ -32,6 +40,12 @@ export default function EvidenceModal({ evidenceData, onClose, onViewDiff }) {
       ? `${selection.startLine}–${selection.endLine}`
       : selection.startLine || selection.line
     : 'N/A';
+
+  const handleExplainClick = () => {
+    if (onExplainCode && selection && file) {
+      onExplainCode(file.path, selection.startLine || selection.line, selection.endLine || selection.line);
+    }
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -66,7 +80,23 @@ export default function EvidenceModal({ evidenceData, onClose, onViewDiff }) {
             <div className="evidence-formatted-content">
               {/* Target File & Code Selection */}
               <div className="evidence-section-box">
-                <h4 className="section-label">SELECTED CODE</h4>
+                <div className="section-header-flex">
+                  <h4 className="section-label">SELECTED CODE (FACTS)</h4>
+                  <button
+                    className="explain-why-btn"
+                    onClick={handleExplainClick}
+                    disabled={isExplaining}
+                  >
+                    {isExplaining ? (
+                      <>
+                        <span className="spinner-icon">⏳</span> Analyzing evidence...
+                      </>
+                    ) : (
+                      <>✨ Explain Why This Exists</>
+                    )}
+                  </button>
+                </div>
+
                 <div className="evidence-meta-row">
                   <div>
                     <label>File:</label>
@@ -86,9 +116,77 @@ export default function EvidenceModal({ evidenceData, onClose, onViewDiff }) {
                 </div>
               </div>
 
+              {/* AI EXPLANATION SECTION */}
+              {isExplaining && (
+                <div className="ai-explanation-card loading-state">
+                  <div className="ai-loading-header">
+                    <span className="ai-spinner">⏳</span>
+                    <span>Analyzing repository evidence...</span>
+                  </div>
+                  <p className="ai-loading-sub">
+                    The AI is reasoning from commits, diffs, and GitHub history to explain why this code exists.
+                  </p>
+                </div>
+              )}
+
+              {explanationError && !isExplaining && (
+                <div className="ai-explanation-card error-state">
+                  <div className="ai-error-header">
+                    ⚠️ AI explanation temporarily unavailable.
+                  </div>
+                  <p className="ai-error-sub">
+                    {explanationError}
+                  </p>
+                </div>
+              )}
+
+              {explanationData && !isExplaining && (
+                <div className="ai-explanation-card">
+                  <div className="ai-card-header">
+                    <div className="ai-title-group">
+                      <span className="ai-icon">🤖</span>
+                      <h4>AI EXPLANATION</h4>
+                      <span className="ai-reasoning-badge">AI Reasoning Layer</span>
+                    </div>
+                    <div className="confidence-pill-container">
+                      <span className="confidence-label">CONFIDENCE:</span>
+                      <span className={`confidence-badge confidence-${explanationData.confidence}`}>
+                        ● {(explanationData.confidence || 'medium').toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="ai-card-body">
+                    <div className="ai-section">
+                      <h5 className="ai-sub-label">WHAT THIS CODE DOES</h5>
+                      <p className="ai-text-content">{explanationData.whatItDoes}</p>
+                    </div>
+
+                    <div className="ai-section">
+                      <h5 className="ai-sub-label">WHY THIS CODE EXISTS</h5>
+                      <p className="ai-text-content why-text">{explanationData.whyItExists}</p>
+                    </div>
+
+                    {explanationData.evidence && explanationData.evidence.length > 0 && (
+                      <div className="ai-section">
+                        <h5 className="ai-sub-label">SUPPORTING EVIDENCE</h5>
+                        <ul className="ai-evidence-list">
+                          {explanationData.evidence.map((item, idx) => (
+                            <li key={idx}>
+                              <span className="ev-type-tag">[{item.type || 'evidence'}]</span>{' '}
+                              <code className="ev-ref">{item.reference}</code>: {item.description}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Introducing Commit */}
               <div className="evidence-section-box">
-                <h4 className="section-label">INTRODUCED BY</h4>
+                <h4 className="section-label">INTRODUCED BY (FACTS)</h4>
                 <div className="meta-grid">
                   <div className="grid-cell">
                     <label>Commit Hash:</label>
@@ -124,7 +222,7 @@ export default function EvidenceModal({ evidenceData, onClose, onViewDiff }) {
 
               {/* Pull Requests */}
               <div className="evidence-section-box">
-                <h4 className="section-label">PULL REQUESTS</h4>
+                <h4 className="section-label">PULL REQUESTS (FACTS)</h4>
                 {!pullRequests || pullRequests.length === 0 ? (
                   <p className="empty-text">No related pull request found.</p>
                 ) : (
@@ -151,7 +249,7 @@ export default function EvidenceModal({ evidenceData, onClose, onViewDiff }) {
 
               {/* Issues */}
               <div className="evidence-section-box">
-                <h4 className="section-label">ISSUES</h4>
+                <h4 className="section-label">ISSUES (FACTS)</h4>
                 {!issues || issues.length === 0 ? (
                   <p className="empty-text">No related issue found.</p>
                 ) : (
@@ -177,7 +275,7 @@ export default function EvidenceModal({ evidenceData, onClose, onViewDiff }) {
               {/* File History Summary */}
               {fileHistory && fileHistory.length > 0 && (
                 <div className="evidence-section-box">
-                  <h4 className="section-label">FILE HISTORY TIMELINE ({fileHistory.length} commits)</h4>
+                  <h4 className="section-label">FILE HISTORY TIMELINE ({fileHistory.length} COMMITS)</h4>
                   <ul className="history-summary-list">
                     {fileHistory.map((h, i) => (
                       <li key={i}>
