@@ -147,7 +147,7 @@ Verify the draft against the evidence and return your assessment as a JSON objec
       headers: {
         'Authorization': `Bearer ${apiKey.trim()}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:5173', // Adjust as needed
+        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
         'X-Title': 'Codebase Time Traveler'
       },
       body: JSON.stringify({

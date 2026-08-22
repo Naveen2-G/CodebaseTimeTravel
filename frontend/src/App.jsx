@@ -7,6 +7,8 @@ import DiffModal from './components/DiffModal';
 import FileHistoryModal from './components/FileHistoryModal';
 import EvidenceModal from './components/EvidenceModal';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 function App() {
   const [backendStatus, setBackendStatus] = useState('checking'); // 'checking' | 'connected' | 'offline'
   const [view, setView] = useState('landing'); // 'landing' | 'explorer'
@@ -53,10 +55,10 @@ function App() {
 
   const checkHealth = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/health');
+      const response = await fetch(`${API_BASE_URL}/api/health`);
       if (response.ok) {
         const data = await response.json();
-        if (data.status === 'ok') {
+        if (data.status === 'ok' || data.success === true) {
           setBackendStatus('connected');
         } else {
           setBackendStatus('offline');
@@ -99,7 +101,7 @@ function App() {
     setIsImporting(true);
 
     try {
-      const response = await fetch('http://localhost:5000/api/repository/import', {
+      const response = await fetch(`${API_BASE_URL}/api/repository/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: repoUrl.trim() }),
@@ -126,7 +128,7 @@ function App() {
     setFileError('');
 
     try {
-      const response = await fetch(`http://localhost:5000/api/repository/${repoData.id}/files`);
+      const response = await fetch(`${API_BASE_URL}/api/repository/${repoData.id}/files`);
       const data = await response.json();
 
       if (!response.ok || !data.success) {
@@ -149,7 +151,7 @@ function App() {
     setIsLoadingFile(true);
 
     try {
-      const response = await fetch(`http://localhost:5000/api/repository/${repoData.id}/file?path=${encodeURIComponent(filePath)}`);
+      const response = await fetch(`${API_BASE_URL}/api/repository/${repoData.id}/file?path=${encodeURIComponent(filePath)}`);
       const data = await response.json();
 
       if (!response.ok || !data.success) {
@@ -184,7 +186,7 @@ function App() {
     try {
       // 1. Fetch Git blame for selected line range
       const response = await fetch(
-        `http://localhost:5000/api/repository/${repoData.id}/blame?path=${encodeURIComponent(selectedFilePath)}&startLine=${sLine}&endLine=${eLine}`
+        `${API_BASE_URL}/api/repository/${repoData.id}/blame?path=${encodeURIComponent(selectedFilePath)}&startLine=${sLine}&endLine=${eLine}`
       );
       const data = await response.json();
 
@@ -197,7 +199,7 @@ function App() {
       const commitHash = data.commit ? data.commit.hash : (data.blame ? data.blame.commit : null);
       if (commitHash) {
         try {
-          const ctxRes = await fetch(`http://localhost:5000/api/repository/${repoData.id}/commit/${commitHash}/context`);
+          const ctxRes = await fetch(`${API_BASE_URL}/api/repository/${repoData.id}/commit/${commitHash}/context`);
           if (ctxRes.ok) {
             const ctxData = await ctxRes.json();
             if (ctxData.success) {
@@ -226,7 +228,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/repository/${repoData.id}/commit/${commitHash}/diff?path=${encodeURIComponent(selectedFilePath || '')}`
+        `${API_BASE_URL}/api/repository/${repoData.id}/commit/${commitHash}/diff?path=${encodeURIComponent(selectedFilePath || '')}`
       );
       const data = await response.json();
 
@@ -249,7 +251,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/repository/${repoData.id}/history?path=${encodeURIComponent(targetFile)}`
+        `${API_BASE_URL}/api/repository/${repoData.id}/history?path=${encodeURIComponent(targetFile)}`
       );
       const data = await response.json();
 
@@ -281,7 +283,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/repository/${repoData.id}/evidence?filePath=${encodeURIComponent(targetFile)}&startLine=${sLine}&endLine=${eLine}`
+        `${API_BASE_URL}/api/repository/${repoData.id}/evidence?filePath=${encodeURIComponent(targetFile)}&startLine=${sLine}&endLine=${eLine}`
       );
       const data = await response.json();
 
@@ -310,7 +312,7 @@ function App() {
     setExplanationData(null);
 
     try {
-      const response = await fetch(`http://localhost:5000/api/repository/${repoData.id}/explain`, {
+      const response = await fetch(`${API_BASE_URL}/api/repository/${repoData.id}/explain`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -347,7 +349,7 @@ function App() {
     setImpactData(null);
 
     try {
-      const response = await fetch(`http://localhost:5000/api/repository/${repoData.id}/explain-impact`, {
+      const response = await fetch(`${API_BASE_URL}/api/repository/${repoData.id}/explain-impact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
