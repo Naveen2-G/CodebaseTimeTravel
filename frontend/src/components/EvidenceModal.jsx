@@ -197,15 +197,21 @@ export default function EvidenceModal({
                         <span className="verification-badge unverified" style={{marginLeft: '8px', fontSize: '11px', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '2px 8px', borderRadius: '12px'}}>⚠️ AI analysis available; verification unavailable</span>
                       )}
                     </div>
-                    <div className="confidence-pill-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                    <div className="confidence-pill-container" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px', marginTop: '16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span className="confidence-label" style={{ minWidth: '170px' }}>CODE UNDERSTANDING:</span>
-                        <span className="confidence-badge confidence-high">
-                          ● HIGH
+                        <span className="confidence-label">AI ANALYZER:</span>
+                        <span className="confidence-badge" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', border: '1px solid rgba(99, 102, 241, 0.3)', fontWeight: '600' }}>
+                          {explanationData.analyzerProvider || 'Gemini'}
                         </span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span className="confidence-label" style={{ minWidth: '170px' }}>HISTORICAL CONFIDENCE:</span>
+                        <span className="confidence-label">VERIFICATION:</span>
+                        <span className="confidence-badge" style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.3)', fontWeight: '600' }}>
+                          {explanationData.verifierProvider || 'OpenRouter'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="confidence-label">HISTORICAL CONFIDENCE:</span>
                         <span className={`confidence-badge confidence-${explanationData.confidence}`}>
                           ● {(explanationData.confidence || 'medium').toUpperCase()}
                         </span>

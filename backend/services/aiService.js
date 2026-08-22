@@ -55,7 +55,7 @@ function reconcileVerification(draft, verificationResult) {
 }
 
 /**
- * Service to generate structured AI explanations using multi-provider fallback (Gemini, OpenRouter, Groq)
+ * Service to generate structured AI explanations using multi-provider fallback (Gemini, Groq, OpenRouter)
  */
 async function generateExplanation(evidencePackage, impactEvidence = null) {
   if (!evidencePackage || !evidencePackage.file || !evidencePackage.selection) {
@@ -64,6 +64,8 @@ async function generateExplanation(evidencePackage, impactEvidence = null) {
       message: 'Invalid evidence package provided to AI service.'
     };
   }
+
+  console.log('[aiService] Starting analysis');
 
   // 1. Prepare sanitized & truncated evidence payload for prompt
   const sanitizedPayload = {
@@ -135,13 +137,13 @@ async function generateExplanation(evidencePackage, impactEvidence = null) {
   try {
     draftExplanation = await geminiProvider.generateDraftExplanation(sanitizedPayload);
   } catch (geminiErr) {
-    console.warn('[aiService] Gemini Analyzer unavailable or failed:', geminiErr.message || geminiErr);
-    console.log('[aiService] Falling back to Groq Analyzer...');
+    console.warn(`[GeminiProvider] Failed: ${geminiErr.message || geminiErr}`);
+    console.log('[GroqProvider] Starting fallback analysis');
     try {
       draftExplanation = await groqProvider.generateDraftExplanation(sanitizedPayload);
       analyzerProvider = 'groq';
     } catch (groqErr) {
-      console.error('[aiService] Groq Analyzer also failed:', groqErr.message || groqErr);
+      console.error(`[GroqProvider] Fallback analysis failed: ${groqErr.message || groqErr}`);
       throw {
         status: 503,
         message: 'AI explanation temporarily unavailable. All AI analyzer providers failed or are unconfigured.'
@@ -152,46 +154,60 @@ async function generateExplanation(evidencePackage, impactEvidence = null) {
   // 3. Multi-provider Independent Verifier Selection
   // Independence requirement: Groq draft cannot be verified by Groq verifier.
   let verificationResult = null;
+  let verifierUsed = 'none';
 
   if (analyzerProvider === 'gemini') {
     // Primary verifier: OpenRouter; Fallback verifier: Groq
     try {
       verificationResult = await openrouterProvider.verifyExplanation(sanitizedPayload, draftExplanation);
+      if (verificationResult && verificationResult.verificationStatus !== 'unavailable') {
+        verifierUsed = 'openrouter';
+      }
     } catch (openrouterErr) {
-      console.warn('[aiService] OpenRouter verifier failed:', openrouterErr.message || openrouterErr);
-      console.log('[aiService] Falling back to Groq Verifier for Gemini draft...');
+      console.warn(`[OpenRouterProvider] Verification failed: ${openrouterErr.message || openrouterErr}`);
+      console.log('[GroqProvider] Starting fallback verification');
       try {
         verificationResult = await groqProvider.verifyExplanation(sanitizedPayload, draftExplanation);
+        if (verificationResult && verificationResult.verificationStatus !== 'unavailable') {
+          verifierUsed = 'groq';
+        }
       } catch (groqVerifyErr) {
-        console.warn('[aiService] Groq verifier also failed:', groqVerifyErr.message || groqVerifyErr);
+        console.warn(`[GroqProvider] Verification failed: ${groqVerifyErr.message || groqVerifyErr}`);
       }
     }
   } else if (analyzerProvider === 'groq') {
     // Independent verifier: OpenRouter only
     try {
       verificationResult = await openrouterProvider.verifyExplanation(sanitizedPayload, draftExplanation);
+      if (verificationResult && verificationResult.verificationStatus !== 'unavailable') {
+        verifierUsed = 'openrouter';
+      }
     } catch (openrouterErr) {
-      console.warn('[aiService] OpenRouter verifier failed for Groq draft. No independent verifier available:', openrouterErr.message || openrouterErr);
+      console.warn(`[OpenRouterProvider] Verification failed for Groq draft: ${openrouterErr.message || openrouterErr}`);
     }
   }
 
   // 4. Reconcile final result
+  let finalResult;
   if (verificationResult && verificationResult.verificationStatus !== 'unavailable') {
-    const finalResult = reconcileVerification(draftExplanation, verificationResult);
-    return {
-      success: true,
-      explanation: finalResult
-    };
+    finalResult = reconcileVerification(draftExplanation, verificationResult);
+    console.log('[aiService] Returning verified result');
   } else {
-    return {
-      success: true,
-      explanation: {
-        ...draftExplanation,
-        verificationStatus: 'unverified',
-        verificationNotice: 'AI analysis available; verification unavailable.'
-      }
+    finalResult = {
+      ...draftExplanation,
+      verificationStatus: 'unverified',
+      verificationNotice: 'AI analysis available; verification unavailable.'
     };
+    console.log('[aiService] Returning unverified result');
   }
+
+  finalResult.analyzerProvider = analyzerProvider === 'gemini' ? 'Gemini' : 'Groq';
+  finalResult.verifierProvider = verifierUsed === 'openrouter' ? 'OpenRouter' : verifierUsed === 'groq' ? 'Groq' : 'None';
+
+  return {
+    success: true,
+    explanation: finalResult
+  };
 }
 
 module.exports = {

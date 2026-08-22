@@ -4,10 +4,10 @@ const path = require('path');
  * Service to verify AI explanations using OpenRouter
  */
 async function verifyExplanation(sanitizedPayload, draftExplanation) {
-  require('dotenv').config({ path: path.join(__dirname, '../.env'), override: true });
   const apiKey = process.env.OPENROUTER_API_KEY;
 
   if (!apiKey || !apiKey.trim()) {
+    console.warn('[OpenRouterProvider] Verification unavailable. OPENROUTER_API_KEY is not configured.');
     throw {
       status: 503,
       message: 'OpenRouter verification unavailable. OPENROUTER_API_KEY is not configured.'
@@ -141,7 +141,7 @@ ${JSON.stringify(verifierDraft, null, 2)}
 Verify the draft against the evidence and return your assessment as a JSON object.`;
 
   try {
-    console.log('[OpenRouter] Verification started...');
+    console.log('[OpenRouterProvider] Starting verification');
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -163,7 +163,7 @@ Verify the draft against the evidence and return your assessment as a JSON objec
 
     if (!response.ok) {
       const errText = await response.text();
-      console.warn(`[OpenRouter] API error (${response.status}):`, errText);
+      console.warn(`[OpenRouterProvider] API error (${response.status}):`, errText);
       if (response.status === 402) {
         return {
           verified: false,
@@ -178,7 +178,7 @@ Verify the draft against the evidence and return your assessment as a JSON objec
     const candidateText = resData?.choices?.[0]?.message?.content;
 
     if (!candidateText) {
-      console.warn('[OpenRouter] Empty text from model');
+      console.warn('[OpenRouterProvider] Empty text from model');
       throw new Error('Empty text from OpenRouter model');
     }
 
@@ -194,14 +194,14 @@ Verify the draft against the evidence and return your assessment as a JSON objec
       }
       parsed = JSON.parse(cleanedJson);
     } catch (parseErr) {
-      console.error('[OpenRouter] Failed to parse AI JSON response:', candidateText);
+      console.error('[OpenRouterProvider] Failed to parse AI JSON response:', candidateText);
       throw new Error('Received malformed JSON response from OpenRouter');
     }
 
-    console.log('[OpenRouter] Verification completed.');
+    console.log('[OpenRouterProvider] Verification succeeded');
     return parsed;
   } catch (err) {
-    console.error('[OpenRouter] Verification failed:', err.message);
+    console.warn(`[OpenRouterProvider] Verification failed: ${err.message}`);
     throw err;
   }
 }

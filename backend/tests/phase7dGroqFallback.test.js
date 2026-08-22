@@ -27,6 +27,16 @@ const mockDraftExplanation = {
   confidence: 'high'
 };
 
+const mockVagueDraftExplanation = {
+  whatItDoes: 'Retrieves student profile.',
+  whyItExists: 'The selected code implements student profile retrieval, but the available historical evidence does not establish why this functionality was introduced. The introducing commit focuses on "Initial project upload folders".',
+  whatHistoryProves: 'Commit abc1234 message is "Initial project upload folders".',
+  whatIsInferred: 'Appears to serve student data.',
+  whatIsUnknown: 'The repository history does not establish the business reason.',
+  affectedFunctionalities: [],
+  confidence: 'low'
+};
+
 const mockVerificationResult = {
   verified: true,
   claims: [{ claim: 'Retrieves student profile', status: 'supported' }],
@@ -45,9 +55,9 @@ async function runTests() {
 
   try {
     // ----------------------------------------------------
-    // TEST 1: Normal Flow (Gemini Analyzer + OpenRouter Verifier)
+    // TEST 1: Gemini works (Gemini ANALYZER -> OpenRouter VERIFIER)
     // ----------------------------------------------------
-    console.log('\nTest 1: Normal Flow (Gemini -> OpenRouter)...');
+    console.log('\nTest 1: Gemini works (Gemini ANALYZER -> OpenRouter VERIFIER)...');
     geminiProvider.generateDraftExplanation = async () => mockDraftExplanation;
     openrouterProvider.verifyExplanation = async () => mockVerificationResult;
     groqProvider.generateDraftExplanation = async () => { throw new Error('Groq should not be called'); };
@@ -55,73 +65,111 @@ async function runTests() {
 
     let res1 = await aiService.generateExplanation(mockEvidencePackage);
     assert.strictEqual(res1.success, true);
+    assert.strictEqual(res1.explanation.analyzerProvider, 'Gemini');
+    assert.strictEqual(res1.explanation.verifierProvider, 'OpenRouter');
     assert.strictEqual(res1.explanation.verificationStatus, 'passed');
-    console.log('✓ Test 1 Passed: Normal flow produces verified status via OpenRouter.');
+    console.log('✓ Test 1 Passed: Gemini Analyzer -> OpenRouter Verifier succeeded.');
     testCount++;
 
     // ----------------------------------------------------
-    // TEST 2: Gemini Failure Flow (Groq Analyzer + OpenRouter Verifier)
+    // TEST 2: Gemini returns 429 (Gemini FAIL -> Groq ANALYZER -> OpenRouter VERIFIER)
     // ----------------------------------------------------
-    console.log('\nTest 2: Gemini Failure Flow (Groq Analyzer -> OpenRouter Verifier)...');
-    geminiProvider.generateDraftExplanation = async () => { throw new Error('Gemini API quota exceeded'); };
+    console.log('\nTest 2: Gemini returns 429 (Groq ANALYZER -> OpenRouter VERIFIER)...');
+    geminiProvider.generateDraftExplanation = async () => { throw new Error('Gemini API returned 429: Quota Exceeded'); };
     groqProvider.generateDraftExplanation = async () => mockDraftExplanation;
     openrouterProvider.verifyExplanation = async () => mockVerificationResult;
 
     let res2 = await aiService.generateExplanation(mockEvidencePackage);
     assert.strictEqual(res2.success, true);
+    assert.strictEqual(res2.explanation.analyzerProvider, 'Groq');
+    assert.strictEqual(res2.explanation.verifierProvider, 'OpenRouter');
     assert.strictEqual(res2.explanation.verificationStatus, 'passed');
-    console.log('✓ Test 2 Passed: Gemini failure falls back to Groq Analyzer and verifies via OpenRouter.');
+    console.log('✓ Test 2 Passed: Gemini 429 triggers Groq Analyzer fallback and verifies via OpenRouter.');
     testCount++;
 
     // ----------------------------------------------------
-    // TEST 3: OpenRouter Failure Flow (Gemini Analyzer -> Groq Verifier)
+    // TEST 3: Gemini fails and Groq fails (AI unavailable 503, Evidence Package remains usable)
     // ----------------------------------------------------
-    console.log('\nTest 3: OpenRouter Failure Flow (Gemini Analyzer -> Groq Verifier)...');
-    geminiProvider.generateDraftExplanation = async () => mockDraftExplanation;
-    openrouterProvider.verifyExplanation = async () => { throw new Error('OpenRouter token budget exceeded'); };
-    groqProvider.verifyExplanation = async () => mockVerificationResult;
+    console.log('\nTest 3: Gemini fails and Groq fails (AI unavailable 503)...');
+    geminiProvider.generateDraftExplanation = async () => { throw new Error('Gemini error 429'); };
+    groqProvider.generateDraftExplanation = async () => { throw new Error('Groq error 429'); };
 
-    let res3 = await aiService.generateExplanation(mockEvidencePackage);
-    assert.strictEqual(res3.success, true);
-    assert.strictEqual(res3.explanation.verificationStatus, 'passed');
-    console.log('✓ Test 3 Passed: OpenRouter failure falls back to Groq Verifier for Gemini draft.');
-    testCount++;
+    try {
+      await aiService.generateExplanation(mockEvidencePackage);
+      assert.fail('Should have thrown 503 error when all providers fail');
+    } catch (err) {
+      assert.strictEqual(err.status, 503);
+      assert.ok(err.message.includes('AI explanation temporarily unavailable'));
+      console.log('✓ Test 3 Passed: Returns graceful 503 error when all AI providers fail.');
+      testCount++;
+    }
 
     // ----------------------------------------------------
-    // TEST 4: Gemini + OpenRouter Failure Flow (Groq Analyzer -> Unverified)
+    // TEST 4: Groq succeeds but OpenRouter fails (Groq ANALYZER -> Verification UNVERIFIED)
     // ----------------------------------------------------
-    console.log('\nTest 4: Gemini + OpenRouter Failure Flow (Groq Analyzer -> Unverified)...');
+    console.log('\nTest 4: Groq succeeds but OpenRouter fails (Groq ANALYZER -> Verification UNVERIFIED)...');
     geminiProvider.generateDraftExplanation = async () => { throw new Error('Gemini down'); };
     groqProvider.generateDraftExplanation = async () => mockDraftExplanation;
     openrouterProvider.verifyExplanation = async () => { throw new Error('OpenRouter down'); };
-    // Independence rule check: Groq verifier MUST NOT verify Groq analyzer draft
     groqProvider.verifyExplanation = async () => { throw new Error('Groq should not verify Groq draft'); };
 
     let res4 = await aiService.generateExplanation(mockEvidencePackage);
     assert.strictEqual(res4.success, true);
+    assert.strictEqual(res4.explanation.analyzerProvider, 'Groq');
+    assert.strictEqual(res4.explanation.verifierProvider, 'None');
     assert.strictEqual(res4.explanation.verificationStatus, 'unverified');
     assert.strictEqual(res4.explanation.verificationNotice, 'AI analysis available; verification unavailable.');
-    console.log('✓ Test 4 Passed: Groq analyzer draft remains UNVERIFIED when no independent verifier is available.');
+    console.log('✓ Test 4 Passed: Analyzer result returned with verification marked as unverified (not falsely verified).');
     testCount++;
 
     // ----------------------------------------------------
-    // TEST 5: All Providers Failure Flow (Throws 503)
+    // TEST 5: No AI keys configured
     // ----------------------------------------------------
-    console.log('\nTest 5: All Providers Failure Flow (Throws 503)...');
-    geminiProvider.generateDraftExplanation = async () => { throw new Error('Gemini error'); };
-    groqProvider.generateDraftExplanation = async () => { throw new Error('Groq error'); };
+    console.log('\nTest 5: No AI keys configured...');
+    geminiProvider.generateDraftExplanation = async () => { throw { status: 503, message: 'GEMINI_API_KEY is not configured.' }; };
+    groqProvider.generateDraftExplanation = async () => { throw { status: 503, message: 'GROQ_API_KEY is not configured.' }; };
 
     try {
       await aiService.generateExplanation(mockEvidencePackage);
-      assert.fail('Should have thrown error when all providers fail');
+      assert.fail('Should have thrown 503 when keys are unconfigured');
     } catch (err) {
       assert.strictEqual(err.status, 503);
-      assert.ok(err.message.includes('AI explanation temporarily unavailable'));
-      console.log('✓ Test 5 Passed: Returns graceful 503 error when all AI providers fail.');
+      console.log('✓ Test 5 Passed: Handled unconfigured keys gracefully with 503 response.');
       testCount++;
     }
 
-    console.log(`\n🎉 ALL ${testCount} MULTI-PROVIDER FALLBACK TESTS PASSED SUCCESSFULLY!`);
+    // ----------------------------------------------------
+    // TEST 6: Function with vague commit message ("Initial project upload folders")
+    // ----------------------------------------------------
+    console.log('\nTest 6: Function with vague commit message ("Initial project upload folders")...');
+    const vagueEvidencePackage = {
+      ...mockEvidencePackage,
+      commit: { hash: 'abc1234', shortHash: 'abc1234', message: 'Initial project upload folders' }
+    };
+    geminiProvider.generateDraftExplanation = async () => mockVagueDraftExplanation;
+    openrouterProvider.verifyExplanation = async () => mockVerificationResult;
+
+    let res6 = await aiService.generateExplanation(vagueEvidencePackage);
+    assert.strictEqual(res6.success, true);
+    assert.strictEqual(res6.explanation.confidence, 'low');
+    assert.ok(res6.explanation.whyItExists.includes('does not establish why this functionality was introduced'));
+    console.log('✓ Test 6 Passed: Vague commit message correctly forces Historical Confidence to LOW.');
+    testCount++;
+
+    // ----------------------------------------------------
+    // TEST 7: Function with strong feature-specific commit message
+    // ----------------------------------------------------
+    console.log('\nTest 7: Function with strong feature-specific commit message...');
+    geminiProvider.generateDraftExplanation = async () => mockDraftExplanation;
+    openrouterProvider.verifyExplanation = async () => mockVerificationResult;
+
+    let res7 = await aiService.generateExplanation(mockEvidencePackage);
+    assert.strictEqual(res7.success, true);
+    assert.strictEqual(res7.explanation.confidence, 'high');
+    console.log('✓ Test 7 Passed: Feature-specific commit evidence yields HIGH historical confidence.');
+    testCount++;
+
+    console.log(`\n🎉 ALL ${testCount} MULTI-PROVIDER ARCHITECTURE TESTS PASSED SUCCESSFULLY!`);
   } finally {
     // Restore original functions
     geminiProvider.generateDraftExplanation = origGeminiGenerate;

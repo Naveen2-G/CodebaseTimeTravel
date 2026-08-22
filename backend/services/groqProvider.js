@@ -1,7 +1,7 @@
 const path = require('path');
 
-// Centralized Groq model configuration (do NOT duplicate across files)
-const GROQ_MODEL = "llama-3.3-70b-versatile";
+// Centralized Groq model configuration (default fallback if GROQ_MODEL env var is absent)
+const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
 
 /**
  * Service to generate structured AI explanations or verifications using Groq
@@ -11,10 +11,10 @@ const GROQ_MODEL = "llama-3.3-70b-versatile";
  * Generate draft explanation using Groq (Fallback Analyzer)
  */
 async function generateDraftExplanation(sanitizedPayload) {
-  require('dotenv').config({ path: path.join(__dirname, '../.env'), override: true });
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey || !apiKey.trim()) {
+    console.warn('[GroqProvider] Failed: GROQ_API_KEY is not configured');
     throw {
       status: 503,
       message: 'Groq AI provider unavailable. GROQ_API_KEY is not configured on the server.'
@@ -146,7 +146,8 @@ ${JSON.stringify(sanitizedPayload, null, 2)}
 Analyze this code and return your structured explanation as a JSON object matching the exact schema.`;
 
   try {
-    console.log(`[Groq Provider] Generating draft explanation with model ${GROQ_MODEL}...`);
+    console.log('[GroqProvider] Starting fallback analysis');
+    console.log(`[GroqProvider] Using model ${GROQ_MODEL}`);
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -166,7 +167,7 @@ Analyze this code and return your structured explanation as a JSON object matchi
 
     if (!response.ok) {
       const errText = await response.text();
-      console.warn(`[Groq Provider] API error (${response.status}):`, errText);
+      console.warn(`[GroqProvider] API error (${response.status}):`, errText);
       throw new Error(`Groq API returned status ${response.status}: ${errText}`);
     }
 
@@ -185,10 +186,10 @@ Analyze this code and return your structured explanation as a JSON object matchi
     }
 
     const parsed = JSON.parse(cleanedJson);
-    console.log('[Groq Provider] Draft explanation generated successfully.');
+    console.log('[GroqProvider] Analysis succeeded');
     return parsed;
   } catch (err) {
-    console.error('[Groq Provider] Error generating draft explanation:', err.message);
+    console.warn(`[GroqProvider] Failed: ${err.message}`);
     throw err;
   }
 }
@@ -197,10 +198,10 @@ Analyze this code and return your structured explanation as a JSON object matchi
  * Verify draft explanation using Groq (Fallback Verifier)
  */
 async function verifyExplanation(sanitizedPayload, draftExplanation) {
-  require('dotenv').config({ path: path.join(__dirname, '../.env'), override: true });
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey || !apiKey.trim()) {
+    console.warn('[GroqProvider] Failed: GROQ_API_KEY is not configured for verification');
     throw {
       status: 503,
       message: 'Groq verification unavailable. GROQ_API_KEY is not configured.'
@@ -321,7 +322,7 @@ ${JSON.stringify(verifierDraft, null, 2)}
 Verify the draft against the evidence and return your assessment as a JSON object.`;
 
   try {
-    console.log(`[Groq Provider] Verifying draft with model ${GROQ_MODEL}...`);
+    console.log(`[GroqProvider] Starting verification with model ${GROQ_MODEL}...`);
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -341,7 +342,7 @@ Verify the draft against the evidence and return your assessment as a JSON objec
 
     if (!response.ok) {
       const errText = await response.text();
-      console.warn(`[Groq Provider] Verification API error (${response.status}):`, errText);
+      console.warn(`[GroqProvider] Verification API error (${response.status}):`, errText);
       throw new Error(`Groq verification returned status ${response.status}: ${errText}`);
     }
 
@@ -360,10 +361,10 @@ Verify the draft against the evidence and return your assessment as a JSON objec
     }
 
     const parsed = JSON.parse(cleanedJson);
-    console.log('[Groq Provider] Verification completed.');
+    console.log('[GroqProvider] Verification succeeded');
     return parsed;
   } catch (err) {
-    console.error('[Groq Provider] Verification failed:', err.message);
+    console.warn(`[GroqProvider] Verification failed: ${err.message}`);
     throw err;
   }
 }

@@ -4,10 +4,10 @@ const path = require('path');
  * Service to generate structured AI explanations for why code exists using Gemini
  */
 async function generateDraftExplanation(sanitizedPayload) {
-  require('dotenv').config({ path: path.join(__dirname, '../.env'), override: true });
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey || !apiKey.trim()) {
+    console.warn('[GeminiProvider] Failed: GEMINI_API_KEY is not configured');
     throw {
       status: 503,
       message: 'AI explanation temporarily unavailable. GEMINI_API_KEY is not configured on the server.'
@@ -275,90 +275,82 @@ ${JSON.stringify(sanitizedPayload, null, 2)}
 
 Analyze the evidence using ONLY the data provided above. Perform the mandatory pre-analysis and final self-check internally. Do NOT present inferences as historical facts. If evidence is insufficient, say so explicitly. Return your response as a JSON object.`;
 
-  // Try calling Gemini models in order of availability
-  const models = ['gemini-3.6-flash', 'gemini-3.1-pro-preview', 'gemini-flash-latest'];
-  let lastError = null;
+  console.log('[GeminiProvider] Starting analysis');
+  const model = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+  console.log(`[GeminiProvider] Using model ${model}`);
 
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
-
-      console.log(`[GeminiProvider] Starting analysis with ${model}...`);
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [{ text: promptText }]
-            }
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: 'application/json'
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: promptText }]
           }
-        })
-      });
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: 'application/json'
+        }
+      })
+    });
 
-      if (!response.ok) {
-        const errText = await response.text();
-        console.warn(`[GeminiProvider] model ${model} API error (${response.status}):`, errText);
-        lastError = new Error(`Gemini API returned ${response.status}: ${errText}`);
-        continue;
-      }
-
-      const resData = await response.json();
-      const candidateText = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-      if (!candidateText) {
-        console.warn(`[GeminiProvider] Empty text from model ${model}`);
-        continue;
-      }
-
-      // Parse JSON from model output
-      let parsed;
-      try {
-        const cleanedJson = candidateText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-        parsed = JSON.parse(cleanedJson);
-      } catch (parseErr) {
-        console.error('[GeminiProvider] Failed to parse AI JSON response:', candidateText);
-        throw { status: 500, message: 'Received malformed response from AI provider.' };
-      }
-
-      // Validate required response fields — defaults are conservative (evidence-grounded)
-      const confidenceLower = (parsed.confidence || 'low').toLowerCase();
-      const validConfidence = ['high', 'medium', 'low'].includes(confidenceLower) ? confidenceLower : 'low';
-
-      const validImpactConfidence = ['high', 'medium', 'low', 'unknown'].includes((parsed.impactConfidence || '').toLowerCase()) ? parsed.impactConfidence.toLowerCase() : 'low';
-
-      console.log(`[GeminiProvider] Analysis completed successfully.`);
-      return {
-        whatItDoes: parsed.whatItDoes || 'No description provided.',
-        whyItExists: parsed.whyItExists || 'The available repository history does not provide enough evidence to determine the original reason this code was introduced.',
-        whatHistoryProves: parsed.whatHistoryProves || 'No historical facts could be extracted from the available evidence.',
-        whatIsInferred: parsed.whatIsInferred || 'No additional inferences could be made from the available context.',
-        whatIsUnknown: parsed.whatIsUnknown || 'The original business requirement or motivation for this code cannot be determined from the available repository history.',
-        whatChanged: parsed.whatChanged || 'Selection added or modified in the referenced repository commit.',
-        impactedCode: parsed.impactedCode || { directCallers: [], directDependencies: [], routes: [], historicallyCoChanged: [] },
-        affectedFunctionalities: Array.isArray(parsed.affectedFunctionalities) ? parsed.affectedFunctionalities : (sanitizedPayload.impactEvidence?.affectedFunctionalities || []),
-        removalAnalysis: parsed.removalAnalysis || sanitizedPayload.impactEvidence?.removalImpact || 'Removing this code is not evidenced to leave any registered route or verified caller without a handler.',
-        modificationAnalysis: parsed.modificationAnalysis || sanitizedPayload.impactEvidence?.modificationImpact || 'Modifying this code alters local file implementation. No verified external caller contracts depend on this code.',
-        potentialImpact: parsed.potentialImpact || 'Changing this code may affect related application components.',
-        impactConfidence: validImpactConfidence,
-        evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [],
-        confidence: validConfidence
-      };
-    } catch (err) {
-      if (err.status) throw err;
-      lastError = err;
+    if (!response.ok) {
+      const errText = await response.text();
+      console.warn(`[GeminiProvider] API error (${response.status}):`, errText);
+      throw new Error(`Gemini API returned ${response.status}: ${errText}`);
     }
-  }
 
-  console.error('[GeminiProvider] All API models failed:', lastError);
-  throw {
-    status: 503,
-    message: `AI explanation temporarily unavailable. ${lastError ? lastError.message : ''}`
-  };
+    const resData = await response.json();
+    const candidateText = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!candidateText) {
+      console.warn(`[GeminiProvider] Empty text from model ${model}`);
+      throw new Error(`Empty text response from Gemini model ${model}`);
+    }
+
+    // Parse JSON from model output
+    let parsed;
+    try {
+      const cleanedJson = candidateText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+      parsed = JSON.parse(cleanedJson);
+    } catch (parseErr) {
+      console.error('[GeminiProvider] Failed to parse AI JSON response:', candidateText);
+      throw { status: 500, message: 'Received malformed response from AI provider.' };
+    }
+
+    // Validate required response fields — defaults are conservative (evidence-grounded)
+    const confidenceLower = (parsed.confidence || 'low').toLowerCase();
+    const validConfidence = ['high', 'medium', 'low'].includes(confidenceLower) ? confidenceLower : 'low';
+    const validImpactConfidence = ['high', 'medium', 'low', 'unknown'].includes((parsed.impactConfidence || '').toLowerCase()) ? parsed.impactConfidence.toLowerCase() : 'low';
+
+    console.log('[GeminiProvider] Analysis succeeded');
+    return {
+      whatItDoes: parsed.whatItDoes || 'No description provided.',
+      whyItExists: parsed.whyItExists || 'The available repository history does not provide enough evidence to determine the original reason this code was introduced.',
+      whatHistoryProves: parsed.whatHistoryProves || 'No historical facts could be extracted from the available evidence.',
+      whatIsInferred: parsed.whatIsInferred || 'No additional inferences could be made from the available context.',
+      whatIsUnknown: parsed.whatIsUnknown || 'The original business requirement or motivation for this code cannot be determined from the available repository history.',
+      whatChanged: parsed.whatChanged || 'Selection added or modified in the referenced repository commit.',
+      impactedCode: parsed.impactedCode || { directCallers: [], directDependencies: [], routes: [], historicallyCoChanged: [] },
+      affectedFunctionalities: Array.isArray(parsed.affectedFunctionalities) ? parsed.affectedFunctionalities : (sanitizedPayload.impactEvidence?.affectedFunctionalities || []),
+      removalAnalysis: parsed.removalAnalysis || sanitizedPayload.impactEvidence?.removalImpact || 'Removing this code is not evidenced to leave any registered route or verified caller without a handler.',
+      modificationAnalysis: parsed.modificationAnalysis || sanitizedPayload.impactEvidence?.modificationImpact || 'Modifying this code alters local file implementation. No verified external caller contracts depend on this code.',
+      potentialImpact: parsed.potentialImpact || 'Changing this code may affect related application components.',
+      impactConfidence: validImpactConfidence,
+      evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [],
+      confidence: validConfidence
+    };
+  } catch (err) {
+    if (err.status) throw err;
+    console.warn(`[GeminiProvider] Failed: ${err.message}`);
+    throw {
+      status: 503,
+      message: `Gemini Analyzer failed: ${err.message}`
+    };
+  }
 }
 
 module.exports = {
