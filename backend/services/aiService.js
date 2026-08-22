@@ -1,6 +1,7 @@
 const path = require('path');
-const { generateDraftExplanation } = require('./geminiProvider');
-const { verifyExplanation } = require('./openrouterProvider');
+const geminiProvider = require('./geminiProvider');
+const openrouterProvider = require('./openrouterProvider');
+const groqProvider = require('./groqProvider');
 
 /**
  * Safely truncate text to avoid token overflow
@@ -12,7 +13,7 @@ function truncateText(text, maxLength = 2500) {
 }
 
 /**
- * Reconcile Gemini draft with OpenRouter verification
+ * Reconcile draft explanation with verifier output
  */
 function reconcileVerification(draft, verificationResult) {
   let finalExplanation = { ...draft };
@@ -37,7 +38,7 @@ function reconcileVerification(draft, verificationResult) {
         });
       }
 
-      // We can also append corrections from the verifier to whatIsUnknown
+      // Append corrections from the verifier to whatIsUnknown
       const corrections = unsupportedClaims
         .filter(c => c.correction)
         .map(c => c.correction)
@@ -54,7 +55,7 @@ function reconcileVerification(draft, verificationResult) {
 }
 
 /**
- * Service to generate structured AI explanations for why code exists using Gemini and verify with OpenRouter
+ * Service to generate structured AI explanations using multi-provider fallback (Gemini, OpenRouter, Groq)
  */
 async function generateExplanation(evidencePackage, impactEvidence = null) {
   if (!evidencePackage || !evidencePackage.file || !evidencePackage.selection) {
@@ -127,30 +128,61 @@ async function generateExplanation(evidencePackage, impactEvidence = null) {
     } : null
   };
 
-  // 2. Get draft explanation from Gemini
+  // 2. Multi-provider Analyzer Fallback (Primary: Gemini -> Fallback: Groq)
   let draftExplanation;
+  let analyzerProvider = 'gemini';
+
   try {
-    draftExplanation = await generateDraftExplanation(sanitizedPayload);
-  } catch (err) {
-    // If Gemini fails, we throw and abort
-    throw err;
+    draftExplanation = await geminiProvider.generateDraftExplanation(sanitizedPayload);
+  } catch (geminiErr) {
+    console.warn('[aiService] Gemini Analyzer unavailable or failed:', geminiErr.message || geminiErr);
+    console.log('[aiService] Falling back to Groq Analyzer...');
+    try {
+      draftExplanation = await groqProvider.generateDraftExplanation(sanitizedPayload);
+      analyzerProvider = 'groq';
+    } catch (groqErr) {
+      console.error('[aiService] Groq Analyzer also failed:', groqErr.message || groqErr);
+      throw {
+        status: 503,
+        message: 'AI explanation temporarily unavailable. All AI analyzer providers failed or are unconfigured.'
+      };
+    }
   }
 
-  // 3. Verify explanation with OpenRouter
-  try {
-    const verificationResult = await verifyExplanation(sanitizedPayload, draftExplanation);
-    
-    // 4. Reconcile final result
+  // 3. Multi-provider Independent Verifier Selection
+  // Independence requirement: Groq draft cannot be verified by Groq verifier.
+  let verificationResult = null;
+
+  if (analyzerProvider === 'gemini') {
+    // Primary verifier: OpenRouter; Fallback verifier: Groq
+    try {
+      verificationResult = await openrouterProvider.verifyExplanation(sanitizedPayload, draftExplanation);
+    } catch (openrouterErr) {
+      console.warn('[aiService] OpenRouter verifier failed:', openrouterErr.message || openrouterErr);
+      console.log('[aiService] Falling back to Groq Verifier for Gemini draft...');
+      try {
+        verificationResult = await groqProvider.verifyExplanation(sanitizedPayload, draftExplanation);
+      } catch (groqVerifyErr) {
+        console.warn('[aiService] Groq verifier also failed:', groqVerifyErr.message || groqVerifyErr);
+      }
+    }
+  } else if (analyzerProvider === 'groq') {
+    // Independent verifier: OpenRouter only
+    try {
+      verificationResult = await openrouterProvider.verifyExplanation(sanitizedPayload, draftExplanation);
+    } catch (openrouterErr) {
+      console.warn('[aiService] OpenRouter verifier failed for Groq draft. No independent verifier available:', openrouterErr.message || openrouterErr);
+    }
+  }
+
+  // 4. Reconcile final result
+  if (verificationResult && verificationResult.verificationStatus !== 'unavailable') {
     const finalResult = reconcileVerification(draftExplanation, verificationResult);
-    
     return {
       success: true,
       explanation: finalResult
     };
-  } catch (err) {
-    // If OpenRouter fails, do NOT destroy Gemini's result
-    console.warn('[aiService] OpenRouter verification failed. Returning unverified Gemini draft.', err.message);
-    
+  } else {
     return {
       success: true,
       explanation: {
