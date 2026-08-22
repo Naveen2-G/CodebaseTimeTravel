@@ -5,6 +5,87 @@ const repositoryService = require('../services/repositoryService');
 const githubService = require('../services/githubService');
 const evidenceService = require('../services/evidenceService');
 const aiService = require('../services/aiService');
+const impactService = require('../services/impactService');
+
+// POST /api/repository/:repositoryId/explain-impact
+router.post('/:repositoryId/explain-impact', async (req, res) => {
+  try {
+    const { repositoryId } = req.params;
+    const { filePath, startLine, endLine, line } = req.body || {};
+
+    const targetFile = filePath;
+    const sLine = startLine || line;
+    const eLine = endLine || sLine;
+
+    if (!repositoryId || !targetFile || !sLine) {
+      return res.status(400).json({ success: false, error: 'Repository ID, file path, and start line are required.' });
+    }
+
+    // 1. Evidence package & Impact evidence assembly
+    const evidencePackage = await evidenceService.buildEvidencePackage(repositoryId, targetFile, sLine, eLine);
+    const impactEvidence = await impactService.buildImpactEvidence(repositoryId, targetFile, sLine, eLine);
+
+    // 2. Call AI impact explanation using Gemini & OpenRouter
+    const aiResult = await aiService.generateExplanation(evidencePackage, impactEvidence);
+
+    return res.status(200).json({
+      success: true,
+      impactEvidence,
+      explanation: aiResult.explanation
+    });
+  } catch (err) {
+    console.error('AI Impact Explanation Endpoint Error:', err.message || err);
+    const statusCode = err.status || 500;
+    const message = err.message || 'AI impact explanation temporarily unavailable.';
+    return res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
+// GET /api/repository/:repositoryId/impact
+router.get('/:repositoryId/impact', async (req, res) => {
+  try {
+    const { repositoryId } = req.params;
+    const filePath = req.query.filePath || req.query.path;
+    const startLine = req.query.startLine || req.query.line;
+    const endLine = req.query.endLine || startLine;
+
+    const result = await impactService.buildImpactEvidence(repositoryId, filePath, startLine, endLine);
+    return res.status(200).json(result);
+  } catch (err) {
+    const statusCode = err.status || 500;
+    const message = err.message || 'Failed to assemble impact evidence.';
+    return res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
+// GET /api/repository/:repositoryId/commit/:commitHash/impact
+router.get('/:repositoryId/commit/:commitHash/impact', async (req, res) => {
+  try {
+    const { repositoryId, commitHash } = req.params;
+    const filePath = req.query.filePath || req.query.path;
+    const startLine = req.query.startLine || req.query.line;
+    const endLine = req.query.endLine || startLine;
+
+    const result = await impactService.buildImpactEvidence(repositoryId, filePath, startLine, endLine);
+    return res.status(200).json({
+      ...result,
+      commitHash
+    });
+  } catch (err) {
+    const statusCode = err.status || 500;
+    const message = err.message || 'Failed to assemble commit impact evidence.';
+    return res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
 
 // POST /api/repository/:repositoryId/explain
 router.post('/:repositoryId/explain', async (req, res) => {

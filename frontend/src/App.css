@@ -1435,6 +1435,46 @@ body {
   border-left: 3px solid #a855f7;
 }
 
+.proves-label {
+  color: #38bdf8;
+}
+
+.proves-text {
+  background: rgba(56, 189, 248, 0.06);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border-left: 3px solid #38bdf8;
+}
+
+.inferred-label {
+  color: #fbbf24;
+}
+
+.inferred-text {
+  background: rgba(251, 191, 36, 0.06);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border-left: 3px solid #fbbf24;
+}
+
+.unknown-label {
+  color: #f87171;
+}
+
+.unknown-text {
+  background: rgba(248, 113, 113, 0.06);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border-left: 3px solid #f87171;
+  font-style: italic;
+}
+
+.bullet-icon {
+  font-style: normal;
+  margin-right: 0.3rem;
+  font-weight: bold;
+}
+
 .ai-evidence-list {
   margin: 0;
   padding-left: 1rem;

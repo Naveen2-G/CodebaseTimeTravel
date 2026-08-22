@@ -46,6 +46,11 @@ function App() {
   const [isExplaining, setIsExplaining] = useState(false);
   const [explanationError, setExplanationError] = useState(null);
 
+  // Impact Analysis State
+  const [impactData, setImpactData] = useState(null);
+  const [isAnalyzingImpact, setIsAnalyzingImpact] = useState(false);
+  const [impactError, setImpactError] = useState(null);
+
   const checkHealth = async () => {
     try {
       const response = await fetch('http://localhost:5000/api/health');
@@ -271,6 +276,8 @@ function App() {
     setIsLoadingEvidence(true);
     setExplanationData(null);
     setExplanationError(null);
+    setImpactData(null);
+    setImpactError(null);
 
     try {
       const response = await fetch(
@@ -324,6 +331,46 @@ function App() {
       setExplanationError('AI explanation temporarily unavailable.');
     } finally {
       setIsExplaining(false);
+    }
+  };
+
+  const handleAnalyzeImpact = async (filePath, startLine, endLine) => {
+    const targetFile = filePath || selectedFilePath;
+    const currentSel = selection || { startLine, endLine };
+    if (!targetFile || !repoData) return;
+
+    const sLine = startLine || (currentSel ? currentSel.startLine : 1);
+    const eLine = endLine || (currentSel ? currentSel.endLine : sLine);
+
+    setIsAnalyzingImpact(true);
+    setImpactError(null);
+    setImpactData(null);
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/repository/${repoData.id}/explain-impact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filePath: targetFile,
+          startLine: sLine,
+          endLine: eLine
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setImpactError(data.error || 'Impact analysis temporarily unavailable.');
+      } else {
+        setImpactData(data.impactEvidence);
+        if (data.explanation) {
+          setExplanationData(data.explanation);
+        }
+      }
+    } catch (err) {
+      setImpactError('Impact analysis temporarily unavailable.');
+    } finally {
+      setIsAnalyzingImpact(false);
     }
   };
 
@@ -485,9 +532,13 @@ function App() {
               onClose={() => setEvidenceData(null)}
               onViewDiff={handleViewDiff}
               onExplainCode={handleExplainCode}
+              onAnalyzeImpact={handleAnalyzeImpact}
               explanationData={explanationData}
               isExplaining={isExplaining}
               explanationError={explanationError}
+              impactData={impactData}
+              isAnalyzingImpact={isAnalyzingImpact}
+              impactError={impactError}
             />
           )}
         </div>
